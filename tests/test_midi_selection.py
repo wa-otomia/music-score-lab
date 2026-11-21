@@ -70,8 +70,8 @@ def test_ambiguous_multichannel_file_raises_listing_groups(tmp_path):
     msg = str(exc.value)
     assert 'midi.tracks' in msg and 'midi.channels' in msg
     assert 'Piano' in msg and 'Something' in msg
-    assert '通道 1' in msg and '通道 2' in msg
-    assert f'{len(GROOVE)} 个音' in msg
+    assert 'channel 1' in msg and 'channel 2' in msg
+    assert f'{len(GROOVE)} notes' in msg
 
 
 def test_explicit_midi_tracks_by_name(tmp_path):
@@ -107,12 +107,12 @@ def test_cli_tracks_override_metadata(tmp_path):
 
 
 def test_selection_matching_nothing_raises(tmp_path):
-    with pytest.raises(ScoreError, match='没有选中'):
+    with pytest.raises(ScoreError, match='select no notes'):
         build(tmp_path, GROOVE, {'midi': {'channels': [5]}})
 
 
 def test_channel_out_of_range(tmp_path):
-    with pytest.raises(ScoreError, match='1–16'):
+    with pytest.raises(ScoreError, match='1-16'):
         build(tmp_path, GROOVE, {'midi': {'channels': [0]}})
 
 
@@ -122,5 +122,5 @@ def test_no_notes_raises(tmp_path):
 
 
 def test_unknown_metadata_key_raises(tmp_path):
-    with pytest.raises(ScoreError, match='未知字段'):
+    with pytest.raises(ScoreError, match='unknown field'):
         build(tmp_path, GROOVE, {'titel': 'x'})

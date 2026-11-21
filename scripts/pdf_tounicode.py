@@ -1,11 +1,11 @@
-"""让只读 ToUnicode 的阅读器（Firefox/pdf.js 等）也能复制出正确字符。
+"""Make readers that only use ToUnicode (Firefox/pdf.js etc.) copy the correct characters.
 
-Noto Sans CJK 里有不少字形被多个码位共用（例如 ``-`` 与 U+2011、``…`` 与 U+22EF），
-xdvipdfmx 生成 ToUnicode 时只能为每个字形挑一个码位，常常挑到不常用的那个。
-XeLaTeX 打开 ``\\XeTeXgenerateactualtext`` 后，每段文字都包在
-``/Span <</ActualText …>> BDC … TJ … EMC`` 里，记录了排版时真正的字符。
-这里逐段把「字形代码 ↔ 实际字符」配对，用文档自己的事实改写各字体的 ToUnicode。
-只改动文档里真正出现过、且一一对应的字形；其余映射保持 xdvipdfmx 原样。
+Many glyphs in Noto Sans CJK are shared by several code points (e.g. ``-`` and U+2011, ``…`` and U+22EF),
+and xdvipdfmx can pick only one code point per glyph when it writes ToUnicode, often the less common one.
+With ``\\XeTeXgenerateactualtext`` on in XeLaTeX, every run of text is wrapped in
+``/Span <</ActualText ...>> BDC ... TJ ... EMC``, which records the characters actually typeset.
+Here each run is paired as "glyph code <-> actual character", and each font's ToUnicode is rewritten from the document's own facts.
+Only glyphs that actually occur in the document and map one-to-one are changed; all other mappings stay as xdvipdfmx wrote them.
 """
 from __future__ import annotations
 
@@ -128,8 +128,8 @@ def observed_codes(doc: pymupdf.Document) -> dict[int, dict[int, str]]:
 
 class ToUnicodeConflict(RuntimeError):
     def __init__(self, code: int, first: str, second: str):
-        super().__init__(f'「{first}」和「{second}」在字体里是同一个字形，复制文字时无法区分。'
-                         f'请在元数据里统一只用其中一个（字形代码 {code}）')
+        super().__init__(f'"{first}" and "{second}" are the same glyph in the font, so they cannot be told apart when copying text. '
+                         f'Use only one of them consistently in the metadata (glyph code {code}).')
 
 
 def fix_tounicode(path: Path) -> int:

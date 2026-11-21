@@ -11,12 +11,12 @@ notes:
   32: square-click
   33: metronome-click
   34: metronome-bell
-  35: kick-2           # Acoustic Bass Drum；只用这一个底鼓时可在 note_map 中改成 kick
+  35: kick-2           # Acoustic Bass Drum。このバスドラムだけを使う場合は note_map で kick に変更できます
   36: kick             # Bass Drum 1
   37: side-stick
   38: snare            # Acoustic Snare
   39: hand-clap
-  40: snare            # Electric Snare（与 38 印成同一个军鼓；两者同时击打时转换器会给出提示）
+  40: snare            # Electric Snare（38 と同じスネアとして印字されます。両方が同時に打たれた場合は変換時に注意メッセージが出ます）
   41: tom-floor-low
   42: hihat-closed
   43: tom-floor-high

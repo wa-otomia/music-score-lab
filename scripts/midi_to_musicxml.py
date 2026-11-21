@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""把记谱模型（score_core）写成可编辑的 MusicXML 4.0（score-partwise）。
+"""Write the notation model (score_core) as editable MusicXML 4.0 (score-partwise).
 
-- 一个声部 Drumset：上声部 voice 1（手，符干朝上），下声部 voice 2（脚，符干朝下）。
-- 每个用到的 MIDI 音符对应一个 score-instrument / midi-instrument（通道 10），
-  MuseScore 等软件导入后仍能按原 GM 音符回放。
-- 符头、开/闭镲记号、三连音、横梁层级、装饰音、整小节休止与多小节休止都写成标准元素，
-  输出符合 MusicXML 4.0 XSD 的元素顺序（tests 会用官方 XSD 校验）。
+- One part, Drumset: upper voice 1 (hands, stems up), lower voice 2 (feet, stems down).
+- Each MIDI note in use gets one score-instrument / midi-instrument (channel 10),
+  so MuseScore etc. still play back the original GM notes after import.
+- Noteheads, open/closed hi-hat marks, tuplets, beam levels, grace notes, whole-bar rests and multi-bar rests are written as standard elements,
+  in the element order required by the MusicXML 4.0 XSD (tests validate against the official XSD).
 """
 from __future__ import annotations
 
@@ -243,12 +243,12 @@ def write(score: Transcription, out: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='鼓 MIDI + 元数据 → MusicXML 4.0')
+    parser = argparse.ArgumentParser(description='Drum MIDI + metadata -> MusicXML 4.0')
     parser.add_argument('midi', type=Path)
     parser.add_argument('--metadata', type=Path, required=True)
-    parser.add_argument('--drum-map', help='内置映射名（gm、fpc-default）或 YAML 路径')
-    parser.add_argument('--track', action='append', help='只用名称包含该文字的轨道（可重复）')
-    parser.add_argument('--channel', action='append', type=int, help='只用该 MIDI 通道 1–16（可重复）')
+    parser.add_argument('--drum-map', help='bundled map name (gm, fpc-default) or YAML path')
+    parser.add_argument('--track', action='append', help='use only tracks whose name contains this text (repeatable)')
+    parser.add_argument('--channel', action='append', type=int, help='use only this MIDI channel, 1-16 (repeatable)')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
@@ -256,10 +256,10 @@ def main(argv: list[str] | None = None) -> int:
                             cli={'tracks': args.track, 'channels': args.channel})
         write(score, args.out)
     except ScoreError as exc:
-        print(f'错误：{exc}', file=sys.stderr)
+        print(f'Error: {exc}', file=sys.stderr)
         return 2
     for warning in score.warnings:
-        print(f'提示：{warning}', file=sys.stderr)
+        print(f'Note: {warning}', file=sys.stderr)
     print(f'{args.out}: {score.summary()}')
     return 0
 

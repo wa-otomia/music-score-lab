@@ -56,13 +56,13 @@ def test_extends_inheritance_and_override(tmp_path):
 def test_extends_cycle_is_an_error(tmp_path):
     (tmp_path / 'a.yaml').write_text(yaml.safe_dump({'extends': str(tmp_path / 'b.yaml'), 'notes': {}}))
     (tmp_path / 'b.yaml').write_text(yaml.safe_dump({'extends': str(tmp_path / 'a.yaml'), 'notes': {}}))
-    with pytest.raises(ScoreError, match='循环'):
+    with pytest.raises(ScoreError, match='cycle'):
         load_drum_map(tmp_path / 'a.yaml')
 
 
 def test_drum_map_unknown_field(tmp_path):
     (tmp_path / 'm.yaml').write_text(yaml.safe_dump({'notes': {}, 'note': 'typo'}))
-    with pytest.raises(ScoreError, match='未知字段'):
+    with pytest.raises(ScoreError, match='unknown field'):
         load_drum_map(tmp_path / 'm.yaml')
 
 
@@ -120,7 +120,7 @@ def test_note_map_inline_with_explicit_id_and_defaults(tmp_path):
     ({'name': 'X', 'part': 'hand', 'staff': 'z', 'head': 'x'}, 'staff'),
     ({'name': 'X', 'part': 'hand', 'staff': 'j', 'head': 'star'}, 'head'),
     ({'name': 'X', 'part': 'hand', 'staff': 'j', 'head': 'x', 'abbr': 'ドラ'}, 'abbr'),
-    ({'name': 'X', 'part': 'hand', 'staff': 'j', 'head': 'x', 'colour': 'red'}, '未知字段'),
+    ({'name': 'X', 'part': 'hand', 'staff': 'j', 'head': 'x', 'colour': 'red'}, 'unknown field'),
 ])
 def test_note_map_inline_validation(tmp_path, spec, pattern):
     with pytest.raises(ScoreError, match=pattern):
@@ -136,7 +136,7 @@ def test_note_map_unknown_instrument(tmp_path):
 
 
 def test_note_map_bad_note_number(tmp_path):
-    with pytest.raises(ScoreError, match='0–127'):
+    with pytest.raises(ScoreError, match='0 and 127'):
         build(tmp_path, [(0, 40)], {'note_map': {200: 'snare'}})
 
 

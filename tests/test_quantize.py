@@ -35,7 +35,7 @@ def test_humanized_tpq480_lands_on_grid(tmp_path):
         expected.setdefault(int(round(b * R)), []).append(n)
     assert all_events(score) == {t: sorted(ns) for t, ns in expected.items()}
     assert score.grace_hits == 0 and score.duplicate_hits == 0
-    assert not any('不齐' in w for w in score.warnings)
+    assert not any('duplicate trigger' in w or 'tempo' in w or 'time signature' in w for w in score.warnings)
     assert len(score.bars) == 4
 
 
@@ -102,9 +102,9 @@ def test_triplets_with_eighth_grid(tmp_path):
 
 def test_32nd_note_run_alternating_pitches_raises(tmp_path):
     hits = [(0, KICK)] + [(5 + i / 8, SNARE if i % 2 else TOM) for i in range(8)]
-    with pytest.raises(ScoreError, match='32 分音符') as exc:
+    with pytest.raises(ScoreError, match='32nd') as exc:
         build(tmp_path, hits, **FOUR_FOUR)
-    assert '第 6 拍' in str(exc.value)
+    assert 'beat 6' in str(exc.value)
 
 
 def test_32nd_note_run_single_pitch_raises(tmp_path):
@@ -125,13 +125,13 @@ def test_isolated_32nd_offbeat_is_not_a_sextuplet(tmp_path):
 
 def test_quintuplets_raise(tmp_path):
     hits = [(i / 5, SNARE if i % 2 else HH) for i in range(5)]
-    with pytest.raises(ScoreError, match='五连音'):
+    with pytest.raises(ScoreError, match='quintuplets'):
         build(tmp_path, hits, **FOUR_FOUR)
 
 
 def test_unquantized_performance_raises(tmp_path):
     hits = [(0, KICK), (0.1, SNARE), (0.42, HH)]
-    with pytest.raises(ScoreError, match='未量化'):
+    with pytest.raises(ScoreError, match='unquantized'):
         build(tmp_path, hits, **FOUR_FOUR)
 
 
@@ -152,13 +152,13 @@ def test_tuplets_off_far_off_grid_raises_with_hint(tmp_path):
 
 
 def test_subdivision_2_with_sixteenths_raises(tmp_path):
-    with pytest.raises(ScoreError, match='8 分'):
+    with pytest.raises(ScoreError, match='8th'):
         build(tmp_path, [(i / 4, HH) for i in range(4)], {'quantize': {'subdivision': 2}}, **FOUR_FOUR)
 
 
 @pytest.mark.parametrize('offset', [0.25, 0.75])
 def test_subdivision_2_with_single_sixteenth_raises(tmp_path, offset):
-    with pytest.raises(ScoreError, match='8 分'):
+    with pytest.raises(ScoreError, match='8th'):
         build(tmp_path, [(0, KICK), (offset, HH)], {'quantize': {'subdivision': 2}}, **FOUR_FOUR)
 
 
@@ -227,13 +227,13 @@ def test_exact_duplicates_merged_and_counted(tmp_path):
     assert score.duplicate_hits == 2
     assert score.grace_hits == 0
     assert score.bars[0].events[48][SNARE].velocity == 100
-    assert any('重复' in w for w in score.warnings)
+    assert any('duplicate' in w for w in score.warnings)
 
 
 def test_two_strokes_snapping_to_one_cell_raise(tmp_path):
     # two hits 70 ticks apart (outside the flam window, 1/7 beat) cannot both be notated
     hits = [(1 - 35 / 480, HH, 80), (1 + 35 / 480, HH, 90)]
-    with pytest.raises(ScoreError, match='无法准确记谱|同一位置'):
+    with pytest.raises(ScoreError, match='Cannot accurately notate|same position'):
         build(tmp_path, hits, {'quantize': {'flam_window': '1/16'}}, tpq=480, **FOUR_FOUR)
 
 

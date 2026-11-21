@@ -1,34 +1,34 @@
-# 乐器目录：鼓映射（configs/drum-maps/*.yaml）和元数据 note_map 引用这里的 ID。
+# 楽器カタログ：ドラムマップ（configs/drum-maps/*.yaml）とメタデータの note_map がここの ID を参照します。
 #
-# 字段：
-#   name     英文名（MusicXML 乐器名）
-#   name_ja  日文名（PDF 图例，可复制文字）
-#   abbr     图例缩写，1–4 个 ASCII 字母/数字或 . + -（凡例里印在符头下方）；默认由 name 生成
-#   part     hand = 上声部（符干朝上）；foot = 下声部（符干朝下）
-#   staff    MusiXTeX 音高字母 a–s（高音谱号位置）：d 下加一间，e 第一线，f 第一间，g 第二线，
-#            h 第二间，i 第三线，j 第三间，k 第四线，l 第四间，m 第五线，n 上加一间，
-#            o 上加一线，p 上加二间，q 上加二线，r 上加三间（全表见 docs/drum-maps.md）
-#   head     normal 实心椭圆 | x 叉 | circle-x 圈叉 | diamond 空心菱形 | triangle 三角
-#            | plus 十字 | rhombus 实心菱形
-#   mark     open（○）| half-open（⊖）| closed（＋）；印在符头上方（手部高 3 个位置，脚部高 2 个位置）；不写则无
+# フィールド：
+#   name     英語名（MusicXML の楽器名）
+#   name_ja  日本語名（PDF の凡例に使われ、テキストとしてコピーできます）
+#   abbr     凡例の略称。ASCII の英数字と . + - を 1～4 文字（凡例では符頭の下に印字されます）。省略時は name から生成されます
+#   part     hand = 上声部（符幹は上向き）、foot = 下声部（符幹は下向き）
+#   staff    MusiXTeX の音高文字 a–s（ト音記号の位置）：d 下第 1 間、e 第 1 線、f 第 1 間、g 第 2 線、
+#            h 第 2 間、i 第 3 線、j 第 3 間、k 第 4 線、l 第 4 間、m 第 5 線、n 上第 1 間、
+#            o 上第 1 線、p 上第 2 間、q 上第 2 線、r 上第 3 間（全体の表は docs/drum-maps.md を参照）
+#   head     normal 黒丸 | x × | circle-x 丸付き× | diamond 白抜きひし形 | triangle 三角
+#            | plus ＋ | rhombus 黒ひし形
+#   mark     open（○）| half-open（⊖）| closed（＋）。符頭の上に印字されます（手は 3 ポジション上、足は 2 ポジション上）。省略すると記号なし
 #
-# 位置以 PAS/Weinberg 鼓谱指南为基础，并保留本仓库原有的日式位置
-# （吊镲在上加一线、踩镲在上加一间、军鼓第三间、底鼓第一间）。
-# 辅助打击乐（拍手、牛铃、铃鼓、康加等）放在同一谱表上，用不同符头区分，
-# 开启凡例（元数据 legend: true 或 --legend）时，第一页会列出实际用到的乐器。
+# 位置は PAS/Weinberg のドラム譜ガイドに基づき、このリポジトリで従来使っている日本式の位置
+# （クラッシュは上第 1 線、ハイハットは上第 1 間、スネアは第 3 間、バスドラムは第 1 間）を残しています。
+# 補助打楽器（ハンドクラップ、カウベル、タンバリン、コンガなど）は同じ譜表に置き、符頭の形で区別します。
+# 凡例を有効にすると（メタデータの legend: true または --legend）、1 ページ目に実際に使われた楽器が一覧表示されます。
 
-# --- 脚（下声部）
+# --- 足（下声部）
 kick:            {name: Bass Drum,         name_ja: バスドラム,           abbr: BD,  part: foot, staff: f, head: normal}
 kick-2:          {name: Bass Drum 2,       name_ja: バスドラム2,          abbr: BD2, part: foot, staff: e, head: normal}
 hihat-pedal:     {name: Pedal Hi-Hat,      name_ja: ハイハット（ペダル）, abbr: HHp, part: foot, staff: d, head: x}
 hihat-foot-splash: {name: Hi-Hat Foot Splash, name_ja: ハイハット（フットスプラッシュ）, abbr: HHs, part: foot, staff: d, head: x, mark: open}
 
-# --- 军鼓
+# --- スネア
 snare:           {name: Snare Drum,        name_ja: スネア,               abbr: SD,  part: hand, staff: j, head: normal}
 side-stick:      {name: Side Stick,        name_ja: サイドスティック,     abbr: SS,  part: hand, staff: j, head: x}
 hand-clap:       {name: Hand Clap,         name_ja: ハンドクラップ,       abbr: CL,  part: hand, staff: j, head: triangle}
 
-# --- 嗵鼓（高 → 低）
+# --- タム（高 → 低）
 tom-high:        {name: High Tom,          name_ja: ハイタム,             abbr: T1,  part: hand, staff: m, head: normal}
 tom-high-mid:    {name: Hi-Mid Tom,        name_ja: ハイミッドタム,       abbr: T2,  part: hand, staff: l, head: normal}
 tom-low-mid:     {name: Low-Mid Tom,       name_ja: ローミッドタム,       abbr: T3,  part: hand, staff: k, head: normal}
@@ -36,12 +36,12 @@ tom-low:         {name: Low Tom,           name_ja: ロータム,             ab
 tom-floor-high:  {name: High Floor Tom,    name_ja: フロアタム,           abbr: FT,  part: hand, staff: h, head: normal}
 tom-floor-low:   {name: Low Floor Tom,     name_ja: ロー・フロアタム,     abbr: FT2, part: hand, staff: g, head: normal}
 
-# --- 踩镲（手）
+# --- ハイハット（手）
 hihat-closed:    {name: Closed Hi-Hat,     name_ja: ハイハット（クローズ）, abbr: HH, part: hand, staff: n, head: x}
 hihat-open:      {name: Open Hi-Hat,       name_ja: ハイハット（オープン）, abbr: HHo, part: hand, staff: n, head: x, mark: open}
 hihat-half-open: {name: Half-Open Hi-Hat,  name_ja: ハイハット（ハーフオープン）, abbr: HHh, part: hand, staff: n, head: x, mark: half-open}
 
-# --- 镲片
+# --- シンバル
 crash:           {name: Crash Cymbal,      name_ja: クラッシュ,           abbr: CC,  part: hand, staff: o, head: x}
 crash-2:         {name: Crash Cymbal 2,    name_ja: クラッシュ2,          abbr: CC2, part: hand, staff: q, head: x}
 splash:          {name: Splash Cymbal,     name_ja: スプラッシュ,         abbr: SP,  part: hand, staff: p, head: x}
@@ -50,7 +50,7 @@ ride:            {name: Ride Cymbal,       name_ja: ライド,                 a
 ride-bell:       {name: Ride Bell,         name_ja: ライド（カップ）, abbr: RB, part: hand, staff: m, head: diamond}
 ride-2:          {name: Ride Cymbal 2,     name_ja: ライド2,                abbr: RC2, part: hand, staff: k, head: x}
 
-# --- 辅助打击乐（同一谱表，靠符头区分；开启凡例时列入凡例）
+# --- 補助打楽器（同じ譜表、符頭の形で区別。凡例を有効にすると凡例に載ります）
 tambourine:      {name: Tambourine,        name_ja: タンバリン,           abbr: TB,  part: hand, staff: l, head: diamond}
 cowbell:         {name: Cowbell,           name_ja: カウベル,             abbr: CB,  part: hand, staff: l, head: triangle}
 vibraslap:       {name: Vibraslap,         name_ja: ビブラスラップ,       abbr: VS,  part: hand, staff: h, head: diamond}

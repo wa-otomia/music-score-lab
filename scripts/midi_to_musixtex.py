@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""把记谱模型（score_core）翻译成 MusiXTeX 源码。
+"""Translate the notation model (score_core) into MusiXTeX source.
 
-只负责「怎么画」，节奏、时值、横梁层级全部来自 score_core，不在这里重新推断。
+Only responsible for "how to draw"; rhythm, durations and beam levels all come from score_core and are not re-inferred here.
 
-- 符头：musixper/musixdia 的符号定义 + MusiXTeX 通用绘制例程组合，例如
-  ``\\do@symbol\\@qb0{n}`` 是带横梁的叉形符头。
-- 手（上声部）用 0 号横梁、符干朝上；脚（下声部）用 1 号横梁、符干朝下。
-- 两个声部都休止的地方才印休止符（居中）；声部各自的完整休止写在 MusicXML 里。
-- 空小节印整小节休止，连续空小节合并成多小节休止。
-- 输出只含 ASCII；日文标题、署名、图例文字由 render_score.py 用 XeLaTeX 另外排版。
+- Noteheads: musixper/musixdia symbol definitions combined with the generic MusiXTeX drawing routines, e.g.
+  ``\\do@symbol\\@qb0{n}`` is a beamed cross notehead.
+- Hands (upper voice) use beam 0 with stems up; feet (lower voice) use beam 1 with stems down.
+- A rest is printed (centred) only where both voices rest; each voice's own full rests are written in the MusicXML.
+- Empty bars print a whole-bar rest; consecutive empty bars merge into a multi-bar rest.
+- The output is ASCII only; the Japanese title, credits and legend text are typeset separately by render_score.py with XeLaTeX.
 """
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ class VoiceWriter:
         if not item.beams:
             routine = {'quarter': 'q', 'eighth': 'c', '16th': 'cc', 'half': 'h', 'whole': 'w'}[name]
             if routine in ('h', 'w'):
-                raise ScoreError('内部错误：鼓谱音符时值不应超过四分音符')
+                raise ScoreError('internal error: drum-score note durations must not exceed a quarter note')
             if routine == 'q':
                 return sym + at + 'q' + u + '{' + p + '}'
             return sym + at + routine + u + '{' + p + '}'
@@ -403,8 +403,8 @@ def convert(score: Transcription, *, header_space: float = 0.0, line_width: floa
             groups, width = bar_groups(bar)
             body += groups
             for t in getattr(bar, 'collisions', []):
-                note = (f'第 {bar.number} 小节第 {t // R + 1} 拍：手脚两个声部的符头相邻且都带横梁，无法错开，'
-                        '可能重叠；可在 note_map 中调整位置')
+                note = (f'Bar {bar.number}, beat {t // R + 1}: the hand and foot noteheads are adjacent and both beamed, so they cannot be offset '
+                        'and may overlap; adjust the position in note_map')
                 if note not in score.warnings:
                     score.warnings.append(note)
         if len(unit) > 1:
@@ -485,16 +485,16 @@ def legend_tex(score: Transcription) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='鼓 MIDI → MusiXTeX 源码（调试用；出 PDF 请用 build_score.py）')
+    parser = argparse.ArgumentParser(description='Drum MIDI -> MusiXTeX source (for debugging; use build_score.py to make a PDF)')
     parser.add_argument('midi', type=Path)
     parser.add_argument('--metadata', type=Path, required=True)
-    parser.add_argument('--drum-map', help='内置映射名（gm、fpc-default）或 YAML 路径')
+    parser.add_argument('--drum-map', help='bundled map name (gm, fpc-default) or YAML path')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         score = build_score(args.midi, args.metadata, args.drum_map)
     except ScoreError as exc:
-        print(f'错误：{exc}', file=sys.stderr)
+        print(f'Error: {exc}', file=sys.stderr)
         return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(convert(score), encoding='ascii')

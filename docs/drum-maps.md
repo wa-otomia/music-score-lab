@@ -1,125 +1,127 @@
-# 乐器目录与鼓映射
+[日本語](drum-maps.md) | [简体中文](drum-maps.zh-CN.md) | [English](drum-maps.en.md)
 
-MIDI 里的鼓只是音符号（例如 36、38、42）。把音符号印成谱面上的符头要两层配置：
+# 楽器カタログとドラムマップ
 
-1. **乐器目录** `configs/instruments.yaml`：每种乐器印在哪个位置、用什么符头、有没有开/闭记号、日文名和图例缩写。
-2. **鼓映射** `configs/drum-maps/*.yaml`：MIDI 音符号 → 乐器 ID。曲目元数据的 `note_map` 可以在映射之上再逐个改写。
+MIDI のドラムはノート番号（例：36、38、42）にすぎません。ノート番号を譜面上の符頭として印刷するには、2 層の設定が必要です。
 
-映射里找不到的音符直接报错，不会猜：错误信息列出这些音符号，指出第一次出现在源 MIDI 第几拍，并用其中一个音符号给出 `note_map` 的写法示例。
+1. **楽器カタログ** `configs/instruments.yaml`：各楽器を譜表のどの位置に、どの符頭で印刷するか。オープン／クローズ記号の有無、日本語名、凡例の略称を定義します。
+2. **ドラムマップ** `configs/drum-maps/*.yaml`：MIDI ノート番号 → 楽器 ID。曲メタデータの `note_map` で、マップの内容をノートごとに上書きできます。
 
-## 乐器目录字段
+マップにないノートは推測せずエラーにします。エラーメッセージには該当するノート番号の一覧と、元の MIDI の何拍目に最初に現れたかが示され、そのうち 1 つのノート番号を使った `note_map` の書き方の例も表示されます。
+
+## 楽器カタログのフィールド
 
 ```yaml
 hihat-open: {name: Open Hi-Hat, name_ja: ハイハット（オープン）, abbr: HHo, part: hand, staff: n, head: x, mark: open}
 ```
 
-| 字段 | 必填 | 说明 |
+| フィールド | 必須 | 説明 |
 | --- | --- | --- |
-| （键） | 是 | 乐器 ID，映射和 `note_map` 用它引用乐器 |
-| `name` | 是 | 英文名，写进 MusicXML 的 `instrument-name`（后面附 MIDI 音符号） |
-| `name_ja` | 否 | 日文名，印在凡例里（可复制文字）。全角括号 `（…）` 及其后的部分在凡例中换到第二行。默认同 `name` |
-| `abbr` | 否 | 凡例缩写，1–4 个字符，只能用 ASCII 字母、数字和 `. + -`。默认由 `name` 中的 ASCII 单词生成：有多个单词时取各词首字母大写（最多 4 个，如 `Hi Hat` → `HH`），只有一个单词时取它的前 3 个字符，没有 ASCII 单词时为 `X` |
-| `part` | 是 | `hand`：上声部，符干朝上；`foot`：下声部，符干朝下 |
-| `staff` | 是 | 谱表位置，一个字母 `a`–`s`，见下表 |
-| `head` | 是 | 符头：`normal` 实心椭圆、`x` 叉、`circle-x` 圈叉、`diamond` 空心菱形、`triangle` 三角、`plus` 十字、`rhombus` 实心菱形 |
-| `mark` | 否 | 记号：`open` 小圆圈 ○、`half-open` ⊖、`closed` ＋；不写则无。印在符头上方（手部高 3 个位置，脚部高 2 个位置） |
+| （キー） | はい | 楽器 ID。マップや `note_map` が楽器を参照するときに使います |
+| `name` | はい | 英語名。MusicXML の `instrument-name` に書き込まれます（末尾に MIDI ノート番号が付きます） |
+| `name_ja` | いいえ | 日本語名。凡例に印刷されます（テキストはコピー可能）。全角括弧 `（…）` 以降は、凡例では 2 行目に折り返されます。省略時は `name` と同じです |
+| `abbr` | いいえ | 凡例の略称。1〜4 文字で、使えるのは ASCII の英数字と `. + -` のみです。省略時は `name` の ASCII 単語から生成されます。単語が複数ある場合は各単語の頭文字を大文字にして並べ（最大 4 文字。例：`Hi Hat` → `HH`）、単語が 1 つの場合は先頭 3 文字、ASCII 単語がない場合は `X` になります |
+| `part` | はい | `hand`：上声部（符幹は上向き）、`foot`：下声部（符幹は下向き） |
+| `staff` | はい | 譜表上の位置。`a`〜`s` の 1 文字で、下の表を参照してください |
+| `head` | はい | 符頭：`normal` 黒丸、`x` ×、`circle-x` 丸付き×、`diamond` 白抜きひし形、`triangle` 三角、`plus` ＋、`rhombus` 黒ひし形 |
+| `mark` | いいえ | 記号：`open` 小さな丸 ○、`half-open` ⊖、`closed` ＋。省略すると記号なしです。符頭の上に印刷されます（手は 3 ポジション上、足は 2 ポジション上） |
 
-### 谱表位置字母
+### 譜表位置の文字
 
-字母沿用 MusiXTeX 的音高字母，按高音谱号的位置理解；MusicXML 中写成对应的 `display-step` / `display-octave`。
+文字は MusiXTeX の音高文字をそのまま使い、ト音記号上の位置として解釈します。MusicXML では対応する `display-step` / `display-octave` として書き出されます。
 
-| 字母 | 位置 | MusicXML | | 字母 | 位置 | MusicXML |
+| 文字 | 位置 | MusicXML | | 文字 | 位置 | MusicXML |
 | --- | --- | --- | --- | --- | --- | --- |
-| `a` | 下加二线 | A3 | | `j` | 第三间 | C5 |
-| `b` | 下加二间 | B3 | | `k` | 第四线 | D5 |
-| `c` | 下加一线 | C4 | | `l` | 第四间 | E5 |
-| `d` | 下加一间 | D4 | | `m` | 第五线 | F5 |
-| `e` | 第一线 | E4 | | `n` | 上加一间 | G5 |
-| `f` | 第一间 | F4 | | `o` | 上加一线 | A5 |
-| `g` | 第二线 | G4 | | `p` | 上加二间 | B5 |
-| `h` | 第二间 | A4 | | `q` | 上加二线 | C6 |
-| `i` | 第三线 | B4 | | `r` | 上加三间 | D6 |
-| | | | | `s` | 上加三线 | E6 |
+| `a` | 下第2線 | A3 | | `j` | 第3間 | C5 |
+| `b` | 下第2間 | B3 | | `k` | 第4線 | D5 |
+| `c` | 下第1線 | C4 | | `l` | 第4間 | E5 |
+| `d` | 下第1間 | D4 | | `m` | 第5線 | F5 |
+| `e` | 第1線 | E4 | | `n` | 上第1間 | G5 |
+| `f` | 第1間 | F4 | | `o` | 上第1線 | A5 |
+| `g` | 第2線 | G4 | | `p` | 上第2間 | B5 |
+| `h` | 第2間 | A4 | | `q` | 上第2線 | C6 |
+| `i` | 第3線 | B4 | | `r` | 上第3間 | D6 |
+| | | | | `s` | 上第3線 | E6 |
 
-（“上加一间”指第五线与上加一线之间，“下加一间”指第一线与下加一线之间。）
+（「上第1間」は第5線と上第1線の間、「下第1間」は第1線と下第1線の間を指します。）
 
-内置目录中各乐器的位置和符头见 [notation-conventions.md](notation-conventions.md)。
+組み込みカタログの各楽器の位置と符頭は [notation-conventions.md](notation-conventions.md) を参照してください。
 
-## 内置映射
+## 組み込みマップ
 
-### `gm`（默认）
+### `gm`（デフォルト）
 
-General MIDI Level 1 打击乐键位 35–81，加上 GS/GM2 扩展的 27–34 与 82–87，共 61 个音符。
-每个音符对应的乐器见 `configs/drum-maps/gm.yaml`，乐器的位置与符头见 notation-conventions.md 中的总表。需要留意的几处：
+General MIDI Level 1 のパーカッションキー 35〜81 に、GS/GM2 拡張の 27〜34 と 82〜87 を加えた、計 61 ノートです。
+各ノートに対応する楽器は `configs/drum-maps/gm.yaml` を、楽器の位置と符頭は notation-conventions.md の一覧表を参照してください。注意すべき点は次のとおりです。
 
-| 音符 | GM 名称 | 映射到 | 说明 |
+| ノート | GM 名称 | マップ先 | 説明 |
 | --- | --- | --- | --- |
-| 35 | Acoustic Bass Drum | `kick-2`（第一线） | 只用 35 当底鼓时，用 `note_map: {35: kick}` 印在常规的第一间 |
-| 36 | Bass Drum 1 | `kick`（第一间） | |
-| 38、40 | Acoustic / Electric Snare | 都是 `snare` | 谱面上无法区分；需要区分时给其中一个改符头 |
-| 44 | Pedal Hi-Hat | `hihat-pedal`（下加一间，脚） | |
-| 42、46 | Closed / Open Hi-Hat | 同一位置（上加一间），46 加 ○ | |
+| 35 | Acoustic Bass Drum | `kick-2`（第1線） | 35 だけをバスドラムに使う場合は、`note_map: {35: kick}` で通常の第1間に印刷します |
+| 36 | Bass Drum 1 | `kick`（第1間） | |
+| 38、40 | Acoustic / Electric Snare | どちらも `snare` | 譜面上では区別できません。区別したい場合は、一方の符頭を変更します |
+| 44 | Pedal Hi-Hat | `hihat-pedal`（下第1間、足） | |
+| 42、46 | Closed / Open Hi-Hat | 同じ位置（上第1間）、46 には ○ が付きます | |
 
 ### `fpc-default`
 
-FL Studio 的鼓采样器 FPC 的默认布局。据 [FL Studio 在线手册的 FPC 页面](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/FPC.htm)（以下为意译）：
+FL Studio のドラムサンプラー FPC のデフォルトレイアウトです。[FL Studio オンラインマニュアルの FPC のページ](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/FPC.htm)によると（以下は意訳です）：
 
-- 布局菜单中的 Default 与 Akai MPC 系列的布局一致（除非已被自己保存的布局覆盖）；
-- 音符旁括号里的名称是 General MIDI 标准名称；空白预设的各个 pad 已经分配到相应的 General MIDI 音符；
-- 每个 pad 的触发音符可以在 Play Key/Octave 中改，布局可以另存。
+- レイアウトメニューの Default は Akai MPC シリーズのレイアウトと同じです（自分で保存したレイアウトで上書きされていない場合）。
+- ノートの横の括弧内の名前は General MIDI の標準名称です。空のプリセットでは各パッドが対応する General MIDI のノートに割り当てられています。
+- 各パッドのトリガーノートは Play Key/Octave で変更でき、レイアウトは別名で保存できます。
 
-也就是说，用默认布局时 FPC 发出的音符号就是 GM 打击乐编号，所以 `fpc-default` 直接 `extends: gm`，不改任何音符。
-它与 `gm` 的区别只在于说明文字，写在元数据里可以记录“这是 FPC 导出”。
+つまり、デフォルトレイアウトを使う限り、FPC が出力するノート番号は GM パーカッション番号そのものです。そのため `fpc-default` は `extends: gm` とするだけで、ノートは一切変更していません。
+`gm` との違いは説明文だけで、メタデータに書いておけば「これは FPC の書き出しである」と記録できます。
 
-FL Studio 直接导出 FPC 时，音符在 MIDI 第 1 通道、轨道名形如 `FPC 1`；转换器的自动选轨会选中它（见 [metadata.md](metadata.md)）。
-**如果改过 pad 的音色或音符**，某个音符号上实际放的已经不是 GM 名称对应的乐器，必须用 `note_map` 或自定义映射改写，
-否则谱面会印错乐器。
+FL Studio から FPC を直接書き出すと、ノートは MIDI の 1 チャンネルに入り、トラック名は `FPC 1` のような形になります。変換ツールの自動トラック選択はこれを選びます（[metadata.md](metadata.md) を参照）。
+**パッドの音色やノートを変更した場合**は、そのノート番号に実際に割り当てられている楽器が GM 名称の楽器とは別物になっています。`note_map` またはカスタムマップで上書きしてください。
+そうしないと、譜面に誤った楽器が印刷されます。
 
-## 改写音符
+## ノートの上書き
 
-### 在元数据中用 `note_map`
+### メタデータの `note_map` を使う
 
-`note_map` 的键是 MIDI 音符号（0–127），值有三种写法：
+`note_map` のキーは MIDI ノート番号（0〜127）で、値の書き方は 3 通りあります。
 
 ```yaml
 note_map:
-  # 1. 换成目录里的另一种乐器
+  # 1. カタログ内の別の楽器に置き換える
   40: hand-clap
 
-  # 2. 以目录中的乐器为基础，改其中几个字段
+  # 2. カタログ内の楽器をベースに、いくつかのフィールドだけ変更する
   38: {as: snare, head: circle-x, name_ja: スネア（リムショット）, abbr: RS}
 
-  # 3. 完整定义一个新乐器（name、part、staff、head 必填；可加 id）
+  # 3. 新しい楽器を一から定義する（name、part、staff、head は必須。id も指定可）
   77: {id: block, name: Block, name_ja: ブロック, abbr: BL, part: hand, staff: r, head: triangle}
 ```
 
-`note_map` 只覆盖写到的音符，其余仍按 `drum_map`。
+`note_map` は書かれたノートだけを上書きし、それ以外は引き続き `drum_map` に従います。
 
-### 写自己的映射文件
+### 独自のマップファイルを書く
 
-一套 FPC 套件或电子鼓音源经常要用时，复制成一个映射文件更方便：
+FPC のキットや電子ドラム音源を頻繁に使う場合は、マップファイルとしてまとめておくと便利です。
 
 ```yaml
-# 例如 scores/<slug>/my-kit.yaml 或 configs/drum-maps/my-kit.yaml
-name: 我的 FPC 套件
-description: Bank A 的 40 号 pad 换成了拍手，41 号是第三个落地嗵鼓
-extends: fpc-default        # 内置映射名，或相对于本文件所在目录的路径
+# 例：scores/<slug>/my-kit.yaml または configs/drum-maps/my-kit.yaml
+name: 私の FPC キット
+description: Bank A の 40 番パッドをハンドクラップに、41 番を 3 つ目のフロアタムに変更
+extends: fpc-default        # 組み込みマップ名、またはこのファイルのあるディレクトリからの相対パス
 notes:
   40: hand-clap
   41: {as: tom-floor-low, abbr: FT3, name_ja: フロアタム3}
 ```
 
-- 顶层只允许 `name`、`description`、`extends`、`notes`。
-- `extends` 可以多层继承，子映射覆盖父映射中的同号音符；出现循环继承会报错。
-- `notes` 的值与 `note_map` 的三种写法相同。
-- 元数据中写 `drum_map: my-kit.yaml`（相对于元数据文件所在目录），或把文件放进 `configs/drum-maps/` 后直接写 `drum_map: my-kit`。
+- トップレベルに書けるのは `name`、`description`、`extends`、`notes` のみです。
+- `extends` は多段階の継承が可能で、子マップは親マップの同じ番号のノートを上書きします。循環継承はエラーになります。
+- `notes` の値の書き方は `note_map` の 3 通りと同じです。
+- メタデータに `drum_map: my-kit.yaml`（メタデータファイルのあるディレクトリからの相対パス）と書くか、ファイルを `configs/drum-maps/` に置いて `drum_map: my-kit` と書きます。
 
-## 位置与符头相同的乐器
+## 位置と符頭が同じ楽器
 
-谱面只靠位置、符头和记号区分乐器。两个 MIDI 音符的**位置、符头、记号和声部**都相同时（例如 GM 38 和 40 都是 `snare`），
-它们在谱面上无法区分，凡例中也合并为一项，只印音符号较小者的缩写和日文名。两者同时击打时，两个符头会重叠印在同一处，转换时会给出提示。
-同一位置、不同符头的两个乐器同时击打（例如 ride 与 ride bell）也会提示符头重叠。提示指出第几小节第几拍，并给出改位置的写法，
-例如 `40: {as: snare, staff: l}`。
-MusicXML 中它们仍是不同的乐器（各自保留原 MIDI 音符号，可以正确回放）。
+譜面では、位置・符頭・記号だけで楽器を区別します。2 つの MIDI ノートの**位置、符頭、記号、声部**がすべて同じ場合（例：GM の 38 と 40 はどちらも `snare`）、
+譜面上では区別できず、凡例でも 1 項目にまとめられ、ノート番号が小さいほうの略称と日本語名だけが印刷されます。両方が同時に打たれると、2 つの符頭が同じ場所に重なって印刷され、変換時に注意が出力されます。
+同じ位置で符頭の異なる 2 つの楽器が同時に打たれた場合（例：ライドとライド（カップ））も、符頭の重なりが注意として出力されます。注意には何小節目の何拍目かが示され、位置を変更する書き方も表示されます。
+例：`40: {as: snare, staff: l}`
+MusicXML 上ではこれらは別々の楽器のままです（それぞれ元の MIDI ノート番号を保持しているので、正しく再生できます）。
 
-需要在谱面上区分时，用 `note_map` 给其中一个换符头或位置。内置乐器目录中没有两种乐器的位置、符头、记号和声部完全相同。
+譜面上で区別したい場合は、`note_map` で一方の符頭または位置を変更してください。組み込みの楽器カタログには、位置・符頭・記号・声部がすべて同じ楽器の組はありません。

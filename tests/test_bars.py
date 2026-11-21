@@ -29,7 +29,7 @@ def test_repeated_identical_time_signature_does_not_show_meter(tmp_path):
 
 
 def test_meter_change_inside_bar_raises(tmp_path):
-    with pytest.raises(ScoreError, match='小节线'):
+    with pytest.raises(ScoreError, match='barline'):
         build(tmp_path, beats_hits(8), sigs=[(0, 4, 4), (2, 3, 4)])
 
 
@@ -40,14 +40,14 @@ def test_unsupported_meters_raise(tmp_path, n, d):
 
 
 def test_metadata_time_signature_mismatch_raises(tmp_path):
-    with pytest.raises(ScoreError, match='不一致'):
+    with pytest.raises(ScoreError, match='does not match'):
         build(tmp_path, beats_hits(4), {'time_signature': '4/4'}, sigs=[(0, 3, 4)])
 
 
 def test_metadata_time_signature_without_midi_signature(tmp_path):
     score = build(tmp_path, beats_hits(10), {'time_signature': '5/4'})
     assert [b.beats for b in score.bars] == [5, 5]
-    assert not any('拍号' in w for w in score.warnings)
+    assert not any('time signature' in w for w in score.warnings)
 
 
 def test_metadata_time_signature_bad_syntax(tmp_path):
@@ -64,7 +64,7 @@ def test_legacy_beats_keys(tmp_path):
 def test_legacy_quantize_divisions_per_beat(tmp_path):
     score = build(tmp_path, [(0.5, HH)], {'quantize_divisions_per_beat': 2}, sigs=[(0, 4, 4)])
     assert score.settings.subdivision == 2
-    with pytest.raises(ScoreError, match='8 分'):
+    with pytest.raises(ScoreError, match='8th'):
         build(tmp_path, [(i / 4, HH) for i in range(4)], {'quantize_divisions_per_beat': 2}, sigs=[(0, 4, 4)])
 
 

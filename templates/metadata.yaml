@@ -1,45 +1,45 @@
-# 曲目元数据模板。复制为 scores/<slug>/metadata.yaml 后修改。
-# 字段说明见 docs/metadata.md。不用的字段可以删掉或保持注释；docs/metadata.md 未列出的字段（含 midi、quantize 等内部的子字段）会报错。
+# 曲のメタデータのテンプレートです。scores/<slug>/metadata.yaml にコピーして編集してください。
+# 各フィールドの説明は docs/metadata.md を参照してください。使わないフィールドは削除するかコメントのままにできます。docs/metadata.md に載っていないフィールド（midi や quantize などの内部のサブフィールドを含む）はエラーになります。
 
-# ---- 署名（只影响标题区与 MusicXML 署名；可以写日文）
-slug: my-song-slug                 # 与目录名相同，仅作记录
+# ---- クレジット（タイトル部と MusicXML のクレジットにだけ反映されます。日本語で書けます）
+slug: my-song-slug                 # ディレクトリ名と同じにします（記録用のみ）
 title: 曲名
-# subtitle: 副标题
+# subtitle: 副題
 artist: アーティスト名
-# album: アルバム名                # 印成『アルバム名』
+# album: アルバム名                # 『アルバム名』の形で印字されます
 composer: 作曲者
 lyricist: 作詞者
-# vocal: 歌手                      # 值相同的职务会合并，例如「作詞・作曲：…」
+# vocal: 歌手                      # 値が同じ役割は 1 つにまとまります（例：「作詞・作曲：…」）
 transcriber: 採譜者
-arranger: 採譜者                   # 与 transcriber 相同时印成「ドラム採譜・編曲：…」
-note: 本譜には採譜者による再構成・創作を含みます。   # 印成「備考：…」
-# copyright: "© …"                 # 印在第一页底部
-# credits:                         # 改写职务标签
+arranger: 採譜者                   # transcriber と同じ場合は「ドラム採譜・編曲：…」と印字されます
+note: 本譜には採譜者による再構成・創作を含みます。   # 「備考：…」と印字されます
+# copyright: "© …"                 # 1 ページ目の下部に印字されます
+# credits:                         # 役割ラベルを書き換えます
 #   vocal: ボーカル
-# legend: true                     # 第一页印乐器凡例（默认不印；true / false，不加引号；也可用 --legend）
+# legend: true                     # 1 ページ目に楽器の凡例を印字します（既定は印字なし。true / false を引用符なしで。--legend でも指定できます）
 
-# ---- MIDI 与鼓映射
-drum_map: gm                       # gm（GM 第 10 通道等）| fpc-default（FL Studio FPC）| 映射 YAML 路径
-# note_map:                        # 逐个改写音符：MIDI 音符号: 乐器 ID（见 configs/instruments.yaml）
+# ---- MIDI とドラムマップ
+drum_map: gm                       # gm（GM の 10 チャンネルなど）| fpc-default（FL Studio FPC）| マップ YAML のパス
+# note_map:                        # ノートを個別に書き換えます。MIDI ノート番号: 楽器 ID（configs/instruments.yaml を参照）
 #   35: kick
 #   40: hand-clap
-# midi:                            # 多轨 MIDI 无法自动判断鼓轨时才需要
-#   tracks: [Drums]                # 轨道名包含的文字（不区分大小写），或轨道序号（从 0 开始）
-#   channels: [10]                 # MIDI 通道 1–16
+# midi:                            # 複数トラックの MIDI でドラムトラックを自動判定できないときだけ必要です
+#   tracks: [Drums]                # トラック名に含まれる文字列（大文字小文字は区別しません）、またはトラック番号（0 始まり）
+#   channels: [10]                 # MIDI チャンネル 1–16
 
-# ---- 速度、拍号、弱起
-# tempo_bpm: 120                   # 默认取乐谱起点生效的 MIDI 速度
-# time_signature: "4/4"            # MIDI 没有拍号事件时才用；有时必须与 MIDI 一致
-# pickup_beats: 0                  # 弱起小节的拍数（整数，四分音符）
-# source_leading_beats: 0          # 源 MIDI 中第 1 小节开始的拍数；默认等于 pickup_beats
+# ---- テンポ・拍子・弱起
+# tempo_bpm: 120                   # 既定では譜面の開始位置で有効な MIDI のテンポを使います
+# time_signature: "4/4"            # MIDI に拍子記号イベントがないときだけ使います。ある場合は MIDI と一致している必要があります
+# pickup_beats: 0                  # 弱起小節の拍数（整数、4 分音符単位）
+# source_leading_beats: 0          # 元の MIDI で 1 小節目が始まる拍の位置。既定は pickup_beats と同じです
 
-# ---- 量化
+# ---- クオンタイズ
 quantize:
-  subdivision: 4                   # 4 = 16 分网格；2 = 8 分网格
-  tuplets: auto                    # auto = 逐拍自动识别三连音；off = 不记三连音（加不加引号都行）
-  # flam_window: 1/8               # 装饰音窗口（四分音符为单位），0 关闭
+  subdivision: 4                   # 4 = 16 分音符グリッド、2 = 8 分音符グリッド
+  tuplets: auto                    # auto = 拍ごとに 3 連符を自動判定、off = 3 連符を使わない（引用符の有無は問いません）
+  # flam_window: 1/8               # 装飾音の判定幅（4 分音符単位）。0 で無効
 
-# ---- 力度（默认不启用；只作用于手部）
+# ---- 強弱（既定では無効。手のパートにだけ作用します）
 # dynamics:
-#   ghost_below: 40                # 力度小于此值 → 括号符头
-#   accent_above: 110              # 力度大于此值 → 重音 >
+#   ghost_below: 40                # ベロシティがこの値未満 → 括弧付きの符頭（ゴーストノート）
+#   accent_above: 110              # ベロシティがこの値超 → アクセント >

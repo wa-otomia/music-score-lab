@@ -1,19 +1,19 @@
-"""鼓 MIDI → 记谱模型（MusicXML 与 MusiXTeX 两个输出器共用）。
+"""Drum MIDI -> notation model (shared by the MusicXML and MusiXTeX writers).
 
-处理流程：
+Processing steps:
 
-1. 读取 MIDI，按轨道/通道选出鼓声部。不要求 GM 第 10 通道：FL Studio 的 FPC
-   默认导出在第 1 通道、轨道名形如 ``FPC 1``。
-2. 用鼓映射（``configs/drum-maps/*.yaml`` + 元数据 ``note_map``）把 MIDI 音符换成乐器
-   （谱表位置、符头、手/脚声部）。映射里没有的音符直接报错，不猜。
-3. 识别装饰音（同一音高紧贴在主音前的弱音）与重复触发。
-4. 逐拍量化：每一拍在「直拍网格」（16 分或 8 分）与「三连音网格」中选误差明显更小者；
-   两者都对不上（32 分音符、五连音、未量化的演奏）时报错并指出位置，不静默丢音。
-5. 按 MIDI 拍号（或元数据覆盖）切小节：支持 1/4–12/4 以及小节线上的拍号变化，
-   支持带音符的弱起小节。
-6. 为每个声部推导时值、休止和横梁层级。两个输出器只翻译这里的结果，不各自推断节奏。
+1. Read the MIDI and pick the drum part by track/channel. GM channel 10 is not required: the FL Studio FPC
+   default export uses channel 1 with a track name like ``FPC 1``.
+2. Use the drum map (``configs/drum-maps/*.yaml`` + metadata ``note_map``) to turn MIDI notes into instruments
+   (staff position, notehead, hand/foot voice). Notes missing from the map are an error; no guessing.
+3. Detect grace notes (a soft note of the same pitch right before the main note) and duplicate triggers.
+4. Quantize beat by beat: each beat picks whichever of the straight grid (16th or 8th) and the triplet grid has clearly smaller error;
+   if neither fits (32nd notes, quintuplets, unquantized playing) it reports the position as an error and never drops notes silently.
+5. Split bars by the MIDI time signature (or the metadata override): 1/4-12/4 and time-signature changes on barlines are supported,
+   as are pickup bars that contain notes.
+6. Derive durations, rests and beam levels for each voice. The two writers only translate these results and never infer rhythm themselves.
 
-内部时间单位固定为每四分音符 ``R`` = 48 刻度，与源文件 ticks_per_beat 无关。
+The internal time unit is fixed at ``R`` = 48 ticks per quarter note, independent of the source file's ticks_per_beat.
 """
 from __future__ import annotations
 
@@ -76,27 +76,27 @@ def read_yaml(path: Path) -> dict:
     try:
         value = yaml.safe_load(Path(path).read_text(encoding='utf-8'))
     except FileNotFoundError:
-        raise ScoreError(f'找不到文件：{path}') from None
+        raise ScoreError(f'File not found: {path}') from None
     except yaml.YAMLError as exc:
-        raise ScoreError(f'YAML 语法错误：{path}：{exc}') from None
+        raise ScoreError(f'YAML syntax error in {path}: {exc}') from None
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise ScoreError(f'YAML 顶层必须是映射：{path}')
+        raise ScoreError(f'The top level of the YAML must be a mapping: {path}')
     return value
 
 
 def make_instrument(ident: str, spec: dict, where: str, base: Instrument | None = None) -> Instrument:
     if not isinstance(spec, dict):
-        raise ScoreError(f'{where}: 乐器定义必须是映射')
+        raise ScoreError(f'{where}: an instrument definition must be a mapping')
     unknown = set(spec) - set(INSTRUMENT_FIELDS) - {'as', 'id'}
     if unknown:
-        raise ScoreError(f'{where}: 未知字段 {sorted(unknown)}；允许 {", ".join(INSTRUMENT_FIELDS)}')
+        raise ScoreError(f'{where}: unknown field(s) {sorted(unknown)}; allowed: {", ".join(INSTRUMENT_FIELDS)}')
     values: dict[str, Any] = {k: getattr(base, k) for k in INSTRUMENT_FIELDS} if base else {}
     values.update({k: v for k, v in spec.items() if k in INSTRUMENT_FIELDS})
     for req in ('name', 'part', 'staff', 'head'):
         if not values.get(req):
-            raise ScoreError(f'{where}: 缺少必填字段 {req}')
+            raise ScoreError(f'{where}: missing required field {req}')
     values.setdefault('name_ja', values['name'])
     if 'abbr' not in values:
         words = re.findall(r'[A-Za-z0-9]+', str(values['name']))
@@ -104,16 +104,16 @@ def make_instrument(ident: str, spec: dict, where: str, base: Instrument | None 
                           else (words[0][:3] if words else 'X'))
     values.setdefault('mark', None)
     if values['part'] not in ('hand', 'foot'):
-        raise ScoreError(f'{where}: part 只能是 hand 或 foot')
+        raise ScoreError(f'{where}: part must be hand or foot')
     if values['head'] not in HEADS:
-        raise ScoreError(f'{where}: head 只能是 {", ".join(HEADS)}')
+        raise ScoreError(f'{where}: head must be one of {", ".join(HEADS)}')
     if values['mark'] not in MARKS:
-        raise ScoreError(f'{where}: mark 只能是 open、half-open、closed 或留空')
+        raise ScoreError(f'{where}: mark must be open, half-open, closed or empty')
     staff = values['staff']
     if not (isinstance(staff, str) and len(staff) == 1 and staff in STAFF_LETTERS):
-        raise ScoreError(f'{where}: staff 必须是 {STAFF_LETTERS[0]}–{STAFF_LETTERS[-1]} 中的一个字母')
+        raise ScoreError(f'{where}: staff must be a single letter from {STAFF_LETTERS[0]} to {STAFF_LETTERS[-1]}')
     if not re.fullmatch(r'[A-Za-z0-9.+-]{1,4}', str(values['abbr'])):
-        raise ScoreError(f'{where}: abbr 只能用 1–4 个 ASCII 字母/数字（谱面图例用）')
+        raise ScoreError(f'{where}: abbr must be 1-4 ASCII letters/digits (used in the score legend)')
     return Instrument(ident, *(values[k] if k != 'name_ja' else str(values[k]) for k in INSTRUMENT_FIELDS))
 
 
@@ -125,9 +125,9 @@ def _note_number(key: Any, where: str) -> int:
     try:
         note = int(key)
     except (TypeError, ValueError):
-        raise ScoreError(f'{where}: MIDI 音符号必须是 0–127 的整数，得到 {key!r}') from None
+        raise ScoreError(f'{where}: a MIDI note number must be an integer 0-127, got {key!r}') from None
     if not 0 <= note <= 127:
-        raise ScoreError(f'{where}: MIDI 音符号必须在 0–127 之间，得到 {note}')
+        raise ScoreError(f'{where}: a MIDI note number must be between 0 and 127, got {note}')
     return note
 
 
@@ -144,7 +144,7 @@ def resolve_map_path(ref: str | Path, relative_to: Path | None = None) -> Path:
     if not path.is_absolute() and relative_to is not None and (relative_to / path).exists():
         path = relative_to / path
     if not path.exists():
-        raise ScoreError(f'找不到鼓映射 {text!r}；内置映射有：{", ".join(bundled_maps())}，或给出 YAML 文件路径')
+        raise ScoreError(f'Drum map {text!r} not found; bundled maps: {", ".join(bundled_maps())}, or give a YAML file path')
     return path
 
 
@@ -152,18 +152,18 @@ def instrument_from_spec(spec: Any, instruments: dict[str, Instrument], where: s
     """``spec`` is an instrument id, ``{as: id, <overrides>}`` or a full inline definition."""
     if isinstance(spec, str):
         if spec not in instruments:
-            raise ScoreError(f'{where}: 未知乐器 {spec!r}；可用乐器 ID 见 configs/instruments.yaml')
+            raise ScoreError(f'{where}: unknown instrument {spec!r}; see configs/instruments.yaml for valid instrument IDs')
         return instruments[spec]
     if isinstance(spec, dict) and 'as' in spec:
         base_id = spec['as']
         if base_id not in instruments:
-            raise ScoreError(f'{where}: 未知乐器 {base_id!r}；可用乐器 ID 见 configs/instruments.yaml')
+            raise ScoreError(f'{where}: unknown instrument {base_id!r}; see configs/instruments.yaml for valid instrument IDs')
         overrides = {k: v for k, v in spec.items() if k != 'as'}
         ident = base_id if not overrides else f'{base_id}@{note}'
         return make_instrument(ident, overrides, where, instruments[base_id])
     if isinstance(spec, dict):
         return make_instrument(str(spec.get('id') or f'note-{note}'), spec, where)
-    raise ScoreError(f'{where}: 乐器必须写成乐器 ID 或映射')
+    raise ScoreError(f'{where}: an instrument must be written as an instrument ID or a mapping')
 
 
 def load_drum_map(ref: str | Path, instruments: dict[str, Instrument] | None = None,
@@ -172,11 +172,11 @@ def load_drum_map(ref: str | Path, instruments: dict[str, Instrument] | None = N
     instruments = instruments if instruments is not None else load_instruments()
     path = resolve_map_path(ref, relative_to).resolve()
     if path in _seen:
-        raise ScoreError('鼓映射循环继承：' + ' → '.join(str(p) for p in (*_seen, path)))
+        raise ScoreError('Drum map inheritance cycle: ' + ' -> '.join(str(p) for p in (*_seen, path)))
     raw = read_yaml(path)
     unknown = set(raw) - {'name', 'description', 'extends', 'notes'}
     if unknown:
-        raise ScoreError(f'{path}: 未知字段 {sorted(unknown)}（允许 name、description、extends、notes）')
+        raise ScoreError(f'{path}: unknown field(s) {sorted(unknown)} (allowed: name, description, extends, notes)')
     notes: dict[int, Instrument] = {}
     sources: tuple[str, ...] = ()
     if raw.get('extends'):
@@ -185,7 +185,7 @@ def load_drum_map(ref: str | Path, instruments: dict[str, Instrument] | None = N
         sources = parent.sources
     for key, spec in (raw.get('notes') or {}).items():
         note = _note_number(key, str(path))
-        notes[note] = instrument_from_spec(spec, instruments, f'{path}: 音符 {note}', note)
+        notes[note] = instrument_from_spec(spec, instruments, f'{path}: note {note}', note)
     return DrumMap(str(raw.get('name') or path.stem), notes, (*sources, str(path)))
 
 
@@ -221,7 +221,7 @@ def _fraction(value: Any, where: str) -> Fraction:
     try:
         return Fraction(str(value))
     except (ValueError, ZeroDivisionError):
-        raise ScoreError(f'元数据 {where} 必须是数字，得到 {value!r}') from None
+        raise ScoreError(f'Metadata {where} must be a number, got {value!r}') from None
 
 
 def _as_list(value: Any) -> list | None:
@@ -234,42 +234,42 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     cli = cli or {}
     unknown = set(meta) - METADATA_KEYS
     if unknown:
-        raise ScoreError(f'元数据含未知字段 {sorted(unknown)}；字段说明见 docs/metadata.md')
+        raise ScoreError(f'Metadata has unknown field(s) {sorted(unknown)}; see docs/metadata.md for the fields')
     s = Settings()
     midi = meta.get('midi') or {}
     if not isinstance(midi, dict):
-        raise ScoreError('元数据 midi 必须是映射（tracks / channels）')
+        raise ScoreError('Metadata midi must be a mapping (tracks / channels)')
     for key, allowed in (('midi', {'tracks', 'channels'}), ('quantize', {'subdivision', 'tuplets', 'flam_window'}),
                          ('dynamics', {'ghost_below', 'accent_above'}),
                          ('credits', {'lyricist', 'composer', 'vocal', 'arranger', 'transcriber', 'artist', 'album', 'note'})):
         value = meta.get(key)
         if isinstance(value, dict) and set(value) - allowed:
-            raise ScoreError(f'元数据 {key} 含未知字段 {sorted(set(value) - allowed)}；允许 {", ".join(sorted(allowed))}')
+            raise ScoreError(f'Metadata {key} has unknown field(s) {sorted(set(value) - allowed)}; allowed: {", ".join(sorted(allowed))}')
     if 'legend' in meta and not isinstance(meta['legend'], bool):
-        raise ScoreError('元数据 legend 只能写 true 或 false（不要加引号）')
+        raise ScoreError('Metadata legend must be true or false (without quotes)')
     s.tracks = _as_list(cli.get('tracks') or midi.get('tracks'))
     channels = _as_list(cli.get('channels') or midi.get('channels'))
     if channels is not None:
         try:
             s.channels = [int(c) for c in channels]
         except (TypeError, ValueError):
-            raise ScoreError('midi.channels 必须是 1–16 的整数') from None
+            raise ScoreError('midi.channels must be integers from 1 to 16') from None
         if any(not 1 <= c <= 16 for c in s.channels):
-            raise ScoreError('MIDI 通道按 1–16 编号（GM 鼓是 10，FPC 默认导出是 1）')
+            raise ScoreError('MIDI channels are numbered 1-16 (GM drums are 10, the FPC default export is 1)')
     s.drum_map = cli.get('drum_map') or meta.get('drum_map') or DEFAULT_DRUM_MAP
     s.note_map = meta.get('note_map') or {}
     if not isinstance(s.note_map, dict):
-        raise ScoreError('元数据 note_map 必须是「MIDI 音符号: 乐器」的映射')
+        raise ScoreError('Metadata note_map must be a mapping of "MIDI note number: instrument"')
     quant = meta.get('quantize') or {}
     if not isinstance(quant, dict):
-        raise ScoreError('元数据 quantize 必须是映射')
+        raise ScoreError('Metadata quantize must be a mapping')
     s.subdivision = _int(quant.get('subdivision', meta.get('quantize_divisions_per_beat', 4)), 'quantize.subdivision')
     if s.subdivision not in (2, 4):
-        raise ScoreError('quantize.subdivision 只支持 4（16 分）或 2（8 分）')
+        raise ScoreError('quantize.subdivision only supports 4 (16th) or 2 (8th)')
     tuplets = quant.get('tuplets', 'auto')
     s.tuplets = 'off' if tuplets is False else str(tuplets)  # YAML reads a bare `off` as false
     if s.tuplets not in ('auto', 'off'):
-        raise ScoreError('quantize.tuplets 只支持 auto 或 off')
+        raise ScoreError('quantize.tuplets only supports auto or off')
     if 'flam_window' in quant:
         s.flam_window = _fraction(quant['flam_window'], 'quantize.flam_window')
     ts = meta.get('time_signature')
@@ -278,40 +278,40 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     if ts is not None:
         m = re.fullmatch(r'\s*(\d+)\s*/\s*(\d+)\s*', str(ts))
         if not m:
-            raise ScoreError(f'time_signature 写法应为 "4/4"，得到 {ts!r}')
+            raise ScoreError(f'time_signature must be written like "4/4", got {ts!r}')
         s.time_signature = (int(m.group(1)), int(m.group(2)))
     if meta.get('tempo_bpm') is not None:
         s.tempo_bpm = float(_fraction(meta['tempo_bpm'], 'tempo_bpm'))
         if not 10 <= s.tempo_bpm <= 400:
-            raise ScoreError('tempo_bpm 应在 10–400 之间')
+            raise ScoreError('tempo_bpm must be between 10 and 400')
     s.pickup_beats = _fraction(meta.get('pickup_beats', 0), 'pickup_beats')
     s.source_leading_beats = _fraction(meta.get('source_leading_beats', s.pickup_beats), 'source_leading_beats')
     if s.pickup_beats < 0 or s.source_leading_beats < s.pickup_beats:
-        raise ScoreError('要求 0 ≤ pickup_beats ≤ source_leading_beats')
+        raise ScoreError('Requires 0 <= pickup_beats <= source_leading_beats')
     if s.pickup_beats.denominator != 1 or s.source_leading_beats.denominator != 1:
-        raise ScoreError('pickup_beats 与 source_leading_beats 必须是整数拍（四分音符）')
+        raise ScoreError('pickup_beats and source_leading_beats must be whole beats (quarter notes)')
     dyn = meta.get('dynamics') or {}
     if not isinstance(dyn, dict):
-        raise ScoreError('元数据 dynamics 必须是映射（ghost_below / accent_above）')
+        raise ScoreError('Metadata dynamics must be a mapping (ghost_below / accent_above)')
     for key, attr in (('ghost_below', 'ghost_velocity'), ('accent_above', 'accent_velocity')):
         if dyn.get(key) is not None:
             value = _int(dyn[key], f'dynamics.{key}')
             if not 1 <= value <= 127:
-                raise ScoreError(f'dynamics.{key} 必须在 1–127 之间')
+                raise ScoreError(f'dynamics.{key} must be between 1 and 127')
             setattr(s, attr, value)
     for key in ('credits',):
         if meta.get(key) is not None and not isinstance(meta[key], dict):
-            raise ScoreError(f'元数据 {key} 必须是映射')
+            raise ScoreError(f'Metadata {key} must be a mapping')
     for key in TEXT_FIELDS:
         if meta.get(key) is not None and not isinstance(meta[key], (str, int, float)):
-            raise ScoreError(f'元数据 {key} 必须是文字')
+            raise ScoreError(f'Metadata {key} must be text')
     return s
 
 
 def _int(value: Any, where: str) -> int:
     fraction = _fraction(value, where)
     if fraction.denominator != 1:
-        raise ScoreError(f'元数据 {where} 必须是整数，得到 {value!r}')
+        raise ScoreError(f'Metadata {where} must be an integer, got {value!r}')
     return int(fraction)
 
 
@@ -358,9 +358,9 @@ def read_midi(path: Path, settings: Settings) -> MidiData:
     try:
         midi = mido.MidiFile(path)
     except (OSError, EOFError, ValueError, KeyError) as exc:
-        raise ScoreError(f'无法读取 MIDI 文件 {path}：{exc or type(exc).__name__}（文件可能不完整或不是标准 MIDI）') from None
+        raise ScoreError(f'Cannot read MIDI file {path}: {str(exc) or type(exc).__name__} (the file may be incomplete or not a standard MIDI file)') from None
     if midi.type == 2:
-        raise ScoreError('不支持 SMF type 2（多个独立序列）的 MIDI 文件')
+        raise ScoreError('MIDI files of SMF type 2 (multiple independent sequences) are not supported')
     tpq = midi.ticks_per_beat
     hits: list[SourceHit] = []
     tempos: list[tuple[int, float]] = []
@@ -387,7 +387,7 @@ def read_midi(path: Path, settings: Settings) -> MidiData:
             if t == index:
                 group['name'] = name
     if not hits:
-        raise ScoreError('MIDI 中没有任何 note-on 事件')
+        raise ScoreError('The MIDI file contains no note-on events')
     selected, reason = select_groups(groups, settings)
     keep = set(selected)
     hits = sorted((h for h in hits if (h.track, h.channel) in keep), key=lambda h: (h.tick, h.note))
@@ -398,7 +398,7 @@ def read_midi(path: Path, settings: Settings) -> MidiData:
 
 
 def describe_groups(groups: dict) -> str:
-    return '；'.join(f'轨道 {t}「{g["name"] or "无名"}」通道 {c}：{g["count"]} 个音'
+    return '; '.join(f'track {t} "{g["name"] or "unnamed"}" channel {c}: {g["count"]} note{"" if g["count"] == 1 else "s"}'
                     for (t, c), g in sorted(groups.items()))
 
 
@@ -417,18 +417,18 @@ def select_groups(groups: dict, settings: Settings) -> tuple[list[tuple[int, int
                 continue
             chosen.append(key)
         if not chosen:
-            raise ScoreError(f'按指定的 tracks/channels 没有选中任何音符。文件中有：{describe_groups(groups)}')
-        return chosen, '按元数据/命令行指定'
+            raise ScoreError(f'The given tracks/channels select no notes. The file contains: {describe_groups(groups)}')
+        return chosen, 'specified by metadata/command line'
     if len(keys) == 1:
-        return keys, '文件只有一个含音符的轨道/通道'
+        return keys, 'the file has only one track/channel with notes'
     ch10 = [k for k in keys if k[1] == 10]
     if ch10:
-        return ch10, 'GM 打击乐通道 10'
+        return ch10, 'GM percussion channel 10'
     named = [k for k in keys if DRUM_TRACK_NAME.search(groups[k]['name'] or '')]
     if named:
-        return named, '轨道名像鼓轨（FPC/Drum/Perc/Kit）'
-    raise ScoreError('MIDI 含多个轨道/通道，无法判断哪一个是鼓。请在元数据 midi.tracks 或 midi.channels '
-                     f'中指定（或用命令行 --track/--channel）。文件中有：{describe_groups(groups)}')
+        return named, 'track name looks like a drum track (FPC/Drum/Perc/Kit)'
+    raise ScoreError('The MIDI file has several tracks/channels and it is unclear which one is the drums. Specify it in the metadata midi.tracks or midi.channels '
+                     f'(or use --track/--channel on the command line). The file contains: {describe_groups(groups)}')
 
 
 # --------------------------------------------------------------------------- model
@@ -492,10 +492,15 @@ class Transcription:
         return sum(len(h) for bar in self.bars for h in bar.events.values())
 
     def summary(self) -> str:
-        parts = [f'{len(self.bars)} 小节', f'记谱 {self.engraved_hits} 个音', f'源 MIDI {self.source_hits} 次击打',
-                 f'装饰音 {self.grace_hits}', f'合并重复 {self.duplicate_hits}',
-                 f'三连音拍 {self.triplet_beat_count}', f'选轨：{self.midi.selection_reason}']
-        return '，'.join(parts)
+        def count(n: int, one: str, many: str) -> str:
+            return f'{n} {one if n == 1 else many}'
+        parts = [count(len(self.bars), 'bar', 'bars'), count(self.engraved_hits, 'note', 'notes') + ' engraved',
+                 count(self.source_hits, 'source MIDI hit', 'source MIDI hits'),
+                 count(self.grace_hits, 'grace note', 'grace notes'),
+                 count(self.duplicate_hits, 'duplicate', 'duplicates') + ' merged',
+                 count(self.triplet_beat_count, 'triplet beat', 'triplet beats'),
+                 f'track selection: {self.midi.selection_reason}']
+        return ', '.join(parts)
 
 
 def build_score(midi_file: Path, metadata_file: Path | None = None, drum_map: str | Path | None = None,
@@ -512,15 +517,18 @@ def build_score(midi_file: Path, metadata_file: Path | None = None, drum_map: st
         notes = dict(dmap.notes)
         for key, spec in settings.note_map.items():
             note = _note_number(key, 'note_map')
-            notes[note] = instrument_from_spec(spec, instruments, f'note_map 音符 {note}', note)
+            notes[note] = instrument_from_spec(spec, instruments, f'note_map note {note}', note)
         dmap = DrumMap(dmap.name + ' + note_map', notes, dmap.sources)
     data = read_midi(Path(midi_file), settings)
     missing = sorted({h.note for h in data.hits} - set(dmap.notes))
     if missing:
         first = min((h for h in data.hits if h.note in missing), key=lambda h: h.tick)
-        where = f'第一次出现在源 MIDI 第 {first.tick / data.tpq + 1:g} 拍（四分音符计）'
-        raise ScoreError(f'鼓映射「{dmap.name}」中没有这些 MIDI 音符：{missing}（{where}）。请在元数据 note_map 中'
-                         f'指定它是什么乐器，例如 note_map: {{{missing[0]}: hand-clap}}；可用乐器 ID 见 configs/instruments.yaml')
+        where = f'first seen at quarter-note beat {first.tick / data.tpq + 1:g} of the source MIDI'
+        map_path = Path(dmap.sources[-1])
+        map_name = f'"{map_path.stem}"' + ('' if map_path.resolve().parent == DRUM_MAP_DIR.resolve() else f' ({map_path})')
+        subject = f'MIDI note {missing[0]} is' if len(missing) == 1 else f'MIDI notes {missing} are'
+        raise ScoreError(f'{subject} not in the drum map {map_name} ({where}). In the metadata note_map, '
+                         f'say which instrument {"it is" if len(missing) == 1 else "each one is"}, e.g. note_map: {{{missing[0]}: hand-clap}}; see configs/instruments.yaml for valid instrument IDs')
     return transcribe(data, dmap, meta, settings)
 
 
@@ -599,12 +607,13 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     tol_s, tol_t = Fraction(1, 24), Fraction(1, 32)
     for (beat, part), items in sorted(beats_of.items()):
         if beat < 0:
-            raise ScoreError('有音符落在乐谱起点之前：请检查元数据 source_leading_beats / pickup_beats')
+            raise ScoreError('A note falls before the start of the score: check the metadata source_leading_beats / pickup_beats')
         # error relative to each stroke's tolerance; a flam's main stroke is late by nature
         flam_tol = Fraction(1, 16)
         err_s = max(place(c, s.subdivision, beat)[0] * (tol_s / flam_tol if g else 1) for c, _, g in items)
         err_t = max(place(c, triplet_div, beat)[0] * (tol_t / flam_tol if g else 1) for c, _, g in items)
-        where = f'第 {beat + 1} 拍（从乐谱起点按四分音符计）的{"手" if part == "hand" else "脚"}声部'
+        voice = 'hand' if part == 'hand' else 'foot'
+        where = f'beat {beat + 1} (counted in quarter notes from the start of the score)'
         # A stroke sitting (almost) exactly on a 64th-note position that is not a tuplet
         # position (e.g. 3/16 beat, only 1/48 from the sextuplet grid) is a 32nd/64th
         # rhythm, not a humanized tuplet.
@@ -616,17 +625,17 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
         elif s.tuplets == 'auto' and err_t <= tol_t and tuplet_wins:
             div = triplet_div
         else:
-            unit = '16 分' if s.subdivision == 4 else '8 分'
+            unit = '16th' if s.subdivision == 4 else '8th'
             if s.tuplets == 'off' and err_t <= tol_t and tuplet_wins:
-                reason = '这一拍是三连音，但元数据设置了 quantize.tuplets: off'
+                reason = 'this beat is a triplet, but the metadata sets quantize.tuplets: off'
             elif err_t <= tol_t and not tuplet_wins:
-                reason = '有音符正好落在 64 分音符位置（如 3/16 拍），这是 32/64 分音符节奏而不是三连音'
+                reason = 'a note sits exactly on a 64th-note position (e.g. 3/16 of a beat); this is a 32nd/64th-note rhythm, not a triplet'
             else:
-                reason = (f'音符既不在 {unit}网格上，也不在三连音网格上（偏差 {float(min(err_s, err_t)):.3f} 拍）：'
-                          '可能是 32 分音符、五连音、同一声部同一拍里直拍与三连音混用，或未量化的演奏')
+                reason = (f'a note is on neither the {unit}-note grid nor the triplet grid (off by {float(min(err_s, err_t)):.3f} beat): '
+                          'possibly 32nd notes, quintuplets, straight and triplet rhythms mixed within one voice in one beat, or unquantized playing')
             if s.tuplets == 'off':
-                reason += '（当前 quantize.tuplets: off）'
-            raise ScoreError(f'{where}无法准确记谱：{reason}。请先在 DAW 中量化，或扩展转换器后再处理。')
+                reason += ' (currently quantize.tuplets: off)'
+            raise ScoreError(f'Cannot accurately notate the {voice} voice at {where}: {reason}. Quantize it in the DAW first, or extend the converter.')
         if div != s.subdivision:
             triplet_beats[beat] = max(div, triplet_beats.get(beat, 0))
         for cands, hit, grace in items:
@@ -635,14 +644,14 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
             inst = dmap.notes[hit.note]
             prev = quantized[tick].get(hit.note)
             if prev is not None:
-                raise ScoreError(f'{where}：MIDI 音符 {hit.note} 有两次击打量化到同一位置，'
-                                 '说明这里的节奏比 16 分音符/三连音更细。请先在 DAW 中量化或删去多余的击打。')
+                raise ScoreError(f'{voice.capitalize()} voice, {where}: MIDI note {hit.note} has two hits quantized to the same position, '
+                                 'which means the rhythm here is finer than 16th notes/triplets. Quantize it in the DAW first or delete the extra hits.')
             hand = inst.part == 'hand'
             ghost = hand and s.ghost_velocity is not None and hit.velocity < s.ghost_velocity
             accent = hand and s.accent_velocity is not None and hit.velocity > s.accent_velocity
             quantized[tick][hit.note] = Hit(hit.note, inst, hit.velocity, grace, ghost, accent)
     if duplicate_count:
-        warnings.append(f'{duplicate_count} 次几乎同时（相差不到 1/48 拍）的同音高重复触发已合并（保留力度最大者）')
+        warnings.append(f'{duplicate_count} near-simultaneous duplicate trigger(s) of the same pitch (less than 1/48 beat apart) were merged (the loudest was kept)')
 
     # 3. bars
     last = max(quantized) if quantized else 0
@@ -652,7 +661,7 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
         bar = bars[bisect.bisect_right(starts, tick) - 1]
         offset = tick - bar.start
         if not 0 <= offset < bar.length:
-            raise ScoreError(f'内部错误：位置 {tick}/{R} 拍不在任何小节内')
+            raise ScoreError(f'Internal error: position {tick}/{R} beat is not inside any bar')
         bar.events[offset] = dict(sorted(hits.items()))
         seen: dict[tuple[str, str], int] = {}
         for note, hit in hits.items():
@@ -660,9 +669,9 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
             if key in seen:
                 other = hits[seen[key]].inst
                 same = (other.head, other.mark) == (hit.inst.head, hit.inst.mark)
-                text = (f'第 {bar.number} 小节第 {offset // R + 1} 拍：MIDI 音符 {seen[key]} 与 {note} 同时出现在谱表同一位置'
-                        + ('且符头相同，谱面上无法区分' if same else '，符头会重叠')
-                        + f'；如需区分，可在 note_map 中改位置，例如 {note}: {{as: {hit.inst.id.split("@")[0]}, staff: '
+                text = (f'Bar {bar.number}, beat {offset // R + 1}: MIDI notes {seen[key]} and {note} appear at the same staff position'
+                        + (' with the same notehead, so they cannot be told apart on the score' if same else ', so the noteheads will overlap')
+                        + f'; to tell them apart, change the position in note_map, e.g. {note}: {{as: {hit.inst.id.split("@")[0]}, staff: '
                         + f'{STAFF_LETTERS[min(len(STAFF_LETTERS) - 1, STAFF_LETTERS.index(hit.inst.staff) + 2)]}}}')
                 if text not in warnings:
                     warnings.append(text)
@@ -679,7 +688,7 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     midi_tempo = starting[-1] if starting else (data.tempos[0][1] if data.tempos else None)
     tempo = s.tempo_bpm or midi_tempo or 120.0
     if s.tempo_bpm and midi_tempo and abs(midi_tempo - s.tempo_bpm) > 0.5:
-        warnings.append(f'元数据 tempo_bpm={s.tempo_bpm:g} 与 MIDI 速度 {midi_tempo:g} 不同，谱面按元数据标注')
+        warnings.append(f'Metadata tempo_bpm={s.tempo_bpm:g} differs from the MIDI tempo {midi_tempo:g}; the score uses the metadata value')
     apply_tempo_changes(bars, data, shift, tempo, warnings)
     return Transcription(bars, dmap, meta, s, len(data.hits), grace_count, duplicate_count,
                          len(triplet_beats), tempo, data, warnings)
@@ -693,20 +702,20 @@ def make_bars(data: MidiData, s: Settings, shift: Fraction, last_tick: int, warn
         if data.time_signatures:
             first = data.time_signatures[0][1:]
             if tuple(first) != (n, d):
-                raise ScoreError(f'元数据拍号 {n}/{d} 与 MIDI 拍号 {first[0]}/{first[1]} 不一致；'
-                                 '请改正元数据，或删除 time_signature 以采用 MIDI 拍号')
+                raise ScoreError(f'Metadata time signature {n}/{d} does not match the MIDI time signature {first[0]}/{first[1]}; '
+                                 'fix the metadata, or remove time_signature to use the MIDI one')
         else:
             sigs = [(Fraction(-10 ** 9), n, d)]
     if not sigs:
         sigs = [(Fraction(-10 ** 9), 4, 4)]
-        warnings.append('MIDI 没有拍号事件，按 4/4 处理（可在元数据 time_signature 中指定）')
+        warnings.append('The MIDI file has no time signature event; 4/4 is assumed (set time_signature in the metadata to change it)')
     elif data.time_signatures and data.time_signatures[0][0] > 0 and s.time_signature is None:
         sigs.insert(0, (Fraction(-10 ** 9), 4, 4))  # SMF default before the first time-signature event
-        warnings.append('MIDI 第一个拍号事件不在开头，之前的部分按 4/4 处理')
+        warnings.append('The first MIDI time signature event is not at the start; the part before it is treated as 4/4')
     for _, n, d in sigs:
         if d != 4 or not 1 <= n <= 12:
-            raise ScoreError(f'暂不支持拍号 {n}/{d}：目前只支持 1/4–12/4（含小节线上的拍号变化）。'
-                             '6/8、12/8 等复合拍请在 DAW 中改为 x/4 加三连音，或扩展转换器。')
+            raise ScoreError(f'Time signature {n}/{d} is not supported: only 1/4-12/4 are supported (including time signature changes on barlines). '
+                             'For compound meters such as 6/8 or 12/8, change them to x/4 with triplets in the DAW, or extend the converter.')
 
     def sig_at(pos: Fraction) -> tuple[int, int]:
         current = (sigs[0][1], sigs[0][2])
@@ -721,11 +730,11 @@ def make_bars(data: MidiData, s: Settings, shift: Fraction, last_tick: int, warn
     if s.pickup_beats:
         first_meter = sig_at(s.pickup_beats * tpq)
         if s.pickup_beats >= first_meter[0]:
-            raise ScoreError(f'pickup_beats={s.pickup_beats} 不短于第一小节（{first_meter[0]}/{first_meter[1]}），'
-                             '弱起小节必须比完整小节短')
+            raise ScoreError(f'pickup_beats={s.pickup_beats} is not shorter than the first bar ({first_meter[0]}/{first_meter[1]}); '
+                             'a pickup bar must be shorter than a full bar')
         for t, _, _ in sigs:
             if 0 < t < s.pickup_beats * tpq:
-                raise ScoreError('MIDI 拍号变化落在弱起小节内部；请检查 pickup_beats / source_leading_beats')
+                raise ScoreError('A MIDI time signature change falls inside the pickup bar; check pickup_beats / source_leading_beats')
         bars.append(Bar(0, 0, int(s.pickup_beats), 4, 0, pickup=True, show_meter=True))
         pos = s.pickup_beats * tpq
     number = 1
@@ -734,7 +743,7 @@ def make_bars(data: MidiData, s: Settings, shift: Fraction, last_tick: int, warn
         n, d = sig_at(pos)
         for t, _, _ in sigs:
             if pos < t < pos + n * tpq:
-                raise ScoreError(f'MIDI 拍号变化不在小节线上（第 {number} 小节内）；请在 DAW 中修正拍号位置')
+                raise ScoreError(f'A MIDI time signature change is not on a barline (inside bar {number}); fix its position in the DAW')
         bars.append(Bar(len(bars), number, n, d, int(pos / tpq * R), show_meter=(previous != (n, d))))
         previous = (n, d)
         pos += n * tpq
@@ -754,7 +763,7 @@ def apply_tempo_changes(bars: list[Bar], data: MidiData, shift: Fraction, initia
         bar = bars[bisect.bisect_right(starts, r) - 1]
         if abs(bpm - current) > 0.5:
             if r != bar.start and warnings is not None:
-                warnings.append(f'第 {bar.number} 小节中途的速度变化（♩={bpm:g}）标在该小节开头')
+                warnings.append(f'Bar {bar.number}: a tempo change in the middle of the bar (quarter note = {bpm:g}) is marked at the start of the bar')
             bar.tempo = bpm
             current = bpm
 
@@ -790,7 +799,7 @@ def note_type(item: VoiceItem) -> tuple[str, int]:
         return ('whole', 0)
     table = TRIPLET_VALUES if item.tuplet else STRAIGHT_VALUES
     if item.duration not in table:
-        raise ScoreError(f'内部错误：无法记谱的时值 {item.duration}/{R} 拍')
+        raise ScoreError(f'Internal error: cannot notate a duration of {item.duration}/{R} beat')
     return table[item.duration]
 
 
@@ -815,7 +824,7 @@ def _straight_partial(start: int, end: int) -> list[tuple[int, int]]:
         else:
             value = R // 4
         if value > length:
-            raise ScoreError(f'内部错误：无法用直拍休止填充 {length}/{R} 拍')
+            raise ScoreError(f'Internal error: cannot fill {length}/{R} beat with straight rests')
         out.append((t, value))
         t += value
     return out

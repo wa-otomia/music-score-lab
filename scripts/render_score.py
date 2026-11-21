@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""鼓 MIDI + 元数据 → 打印用 PDF。
+"""Drum MIDI + metadata -> printable PDF.
 
-流水线（每一步都可复现，不提交任何字体文件）：
+Pipeline (every step is reproducible; no font files are committed):
 
-1. ``score_core`` 读 MIDI、量化、切小节（与 MusicXML 输出共用同一模型）。
-2. XeLaTeX 先排一次标题区（曲名、署名、备注、图例），量出高度。
-3. MusiXTeX（``musixtex -d``：etex → musixflx → etex → dvipdfmx）排谱，第一页顶部按
-   标题区高度留白；图例的每个符头另排成小谱表并裁切。
-4. Ghostscript ``-dNoOutputFonts`` 把谱面上的所有字形（音符、休止符、小节号）转成矢量路径，
-   复制谱面时不会再出现乱码。
-5. XeLaTeX + pdfpages 把矢量谱页放进最终 PDF，并叠加**真正的文字**：标题区、图例文字、
-   续页页眉和页码。xdvipdfmx 嵌入 Noto Sans CJK JP 子集（CID 字体 + ToUnicode），
-   可以选中、复制、搜索。
+1. ``score_core`` reads the MIDI, quantizes and splits bars (same model as the MusicXML output).
+2. XeLaTeX first typesets the header block (title, credits, note, legend) to measure its height.
+3. MusiXTeX (``musixtex -d``: etex -> musixflx -> etex -> dvipdfmx) engraves the score; the top of page 1 is left blank by
+   the header height; each legend notehead is typeset as a tiny staff and cropped.
+4. Ghostscript ``-dNoOutputFonts`` turns all glyphs on the staff (notes, rests, bar numbers) into vector paths,
+   so copying from the staff no longer yields garbage.
+5. XeLaTeX + pdfpages place the vector pages into the final PDF and overlay **real text**: header block, legend text,
+   running heads and page numbers. xdvipdfmx embeds a Noto Sans CJK JP subset (CID font + ToUnicode),
+   so the text can be selected, copied and searched.
 
-需要：MusiXTeX（texlive-music）、XeLaTeX + xeCJK + pdfpages、Ghostscript、本机安装的
-Noto Sans CJK JP（fonts-noto-cjk）。
+Requires: MusiXTeX (texlive-music), XeLaTeX + xeCJK + pdfpages, Ghostscript, and a locally installed
+Noto Sans CJK JP (fonts-noto-cjk).
 """
 from __future__ import annotations
 
@@ -61,8 +61,8 @@ def check_glyphs(log: Path) -> None:
     """XeTeX only logs characters the font lacks; they would print as empty boxes."""
     missing = sorted(set(re.findall(r'Missing character: There is no (.+?) \(', log.read_text(errors='replace'))))
     if missing:
-        raise RuntimeError(f'字体 {FONT} 中没有这些字符，PDF 会印成方框：{"、".join(missing)}。'
-                           '请在元数据中换用其他写法（例如去掉表情符号）')
+        raise RuntimeError(f'The font {FONT} has no glyph for these characters, so the PDF would show boxes: {", ".join(missing)}. '
+                           'Use a different spelling in the metadata (e.g. remove emoji).')
 
 
 def run(command: list[str], cwd: Path, *, max_log: int = 4000) -> str:
@@ -70,16 +70,16 @@ def run(command: list[str], cwd: Path, *, max_log: int = 4000) -> str:
         process = subprocess.run(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, errors='replace', timeout=600)
     except FileNotFoundError:
-        raise RuntimeError(f'找不到命令 {command[0]}；请安装 README 中列出的依赖') from None
+        raise RuntimeError(f'Command not found: {command[0]}; install the dependencies listed in the README') from None
     if process.returncode != 0:
-        raise RuntimeError(f'{" ".join(command)} 失败（退出码 {process.returncode}）：\n{process.stdout[-max_log:]}')
+        raise RuntimeError(f'{" ".join(command)} failed (exit code {process.returncode}):\n{process.stdout[-max_log:]}')
     return process.stdout
 
 
 def check_tools() -> None:
     missing = [t for t in TOOLS if not shutil.which(t)]
     if missing:
-        raise RuntimeError('缺少命令：' + '、'.join(missing) + '。Debian/Ubuntu 请安装 texlive-music texlive-xetex '
+        raise RuntimeError('Missing commands: ' + ', '.join(missing) + '. On Debian/Ubuntu install texlive-music texlive-xetex '
                            'texlive-lang-cjk texlive-latex-recommended ghostscript fonts-noto-cjk')
 
 
@@ -268,7 +268,7 @@ def musixtex(work: Path, name: str, source: str) -> Path:
     run(['musixtex', '-d', '-i', f'{name}.tex'], work)
     pdf = work / f'{name}.pdf'
     if not pdf.exists():
-        raise RuntimeError(f'MusiXTeX 没有生成 {pdf.name}；详见 {work / (name + ".log")}')
+        raise RuntimeError(f'MusiXTeX did not produce {pdf.name}; see {work / (name + ".log")}')
     return pdf
 
 
@@ -308,7 +308,7 @@ def render(score: Transcription, out: Path, work: Path, *, keep_tex: Path | None
     log = (work / 'score.log').read_text(errors='replace') if (work / 'score.log').exists() else ''
     overfull = [float(x) for x in re.findall(r'Overfull \\hbox \(([\d.]+)pt too wide\)', log)]
     if overfull and max(overfull) > 4:
-        score.warnings.append(f'有 {len(overfull)} 行谱面略超出版心（最多 {max(overfull):.1f}pt），请目视检查')
+        score.warnings.append(f'{len(overfull)} staff line(s) slightly exceed the text width (by up to {max(overfull):.1f}pt); please check visually')
     outline(engraved, work / 'notes.pdf', work)
     with pymupdf.open(work / 'notes.pdf') as doc:
         pages = len(doc)
@@ -317,17 +317,17 @@ def render(score: Transcription, out: Path, work: Path, *, keep_tex: Path | None
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='鼓 MIDI + 元数据 → PDF 鼓谱')
+    parser = argparse.ArgumentParser(description='Drum MIDI + metadata -> PDF drum score')
     parser.add_argument('midi', type=Path)
     parser.add_argument('--metadata', type=Path, required=True)
-    parser.add_argument('--drum-map', help='内置映射名（gm、fpc-default）或 YAML 路径')
-    parser.add_argument('--track', action='append', help='只用名称包含该文字的轨道（可重复）')
-    parser.add_argument('--channel', action='append', type=int, help='只用该 MIDI 通道 1–16（可重复）')
+    parser.add_argument('--drum-map', help='bundled map name (gm, fpc-default) or YAML path')
+    parser.add_argument('--track', action='append', help='use only tracks whose name contains this text (repeatable)')
+    parser.add_argument('--channel', action='append', type=int, help='use only this MIDI channel, 1-16 (repeatable)')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
-                        help='印出（--legend）或不印（--no-legend）乐器凡例；默认按元数据 legend，未写则不印')
-    parser.add_argument('--keep-tex', type=Path, help='另存生成的 MusiXTeX 源码（调试用）')
-    parser.add_argument('--work-dir', type=Path, help='保留中间文件的目录（默认用临时目录并在结束后删除）')
+                        help='print (--legend) or omit (--no-legend) the instrument legend; default follows the metadata legend, omitted if unset')
+    parser.add_argument('--keep-tex', type=Path, help='also save the generated MusiXTeX source (for debugging)')
+    parser.add_argument('--work-dir', type=Path, help='directory to keep intermediate files (default: a temp dir deleted afterwards)')
     args = parser.parse_args(argv)
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
@@ -341,11 +341,11 @@ def main(argv: list[str] | None = None) -> int:
             with tempfile.TemporaryDirectory(prefix='drum-score-') as temp:
                 info = render(score, args.out, Path(temp), keep_tex=args.keep_tex)
     except (ScoreError, RuntimeError) as exc:
-        print(f'错误：{exc}', file=sys.stderr)
+        print(f'Error: {exc}', file=sys.stderr)
         return 2
     for warning in score.warnings:
-        print(f'提示：{warning}', file=sys.stderr)
-    print(f'{args.out}: A4 {info["pages"]} 页；{score.summary()}')
+        print(f'Note: {warning}', file=sys.stderr)
+    print(f'{args.out}: A4, {info["pages"]} page(s); {score.summary()}')
     return 0
 
 

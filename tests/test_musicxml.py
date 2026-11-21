@@ -63,7 +63,7 @@ def test_validate_musicxml_synthetic(feature_score, tmp_path):
 def test_validate_musicxml_repo_song(song, tmp_path):
     path, _root = written(song, tmp_path)
     msg = validate_musicxml(song, path)
-    assert '202 小节' in msg and '1952 个音' in msg
+    assert '202 bars' in msg and '1952 notes' in msg
 
 
 @needs_xsd
@@ -83,7 +83,7 @@ def test_validator_catches_tampering(feature_score, tmp_path):
     note = next(n for n in root.iter('note') if n.find('unpitched') is not None and n.find('grace') is None)
     note.find('stem').text = 'down' if note.findtext('voice') == '1' else 'up'
     ET.ElementTree(root).write(path)
-    with pytest.raises(ValidationError, match='符干'):
+    with pytest.raises(ValidationError, match='stem'):
         validate_musicxml(feature_score, path)
 
 

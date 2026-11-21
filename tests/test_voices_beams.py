@@ -64,7 +64,7 @@ def test_synthetic_rhythms_add_up(tmp_path, seed):
 
 
 def test_pickup_must_be_shorter_than_first_bar(tmp_path):
-    with pytest.raises(ScoreError, match='弱起'):
+    with pytest.raises(ScoreError, match='pickup'):
         build(tmp_path, [(0.75, SNARE), (2, KICK)], {'pickup_beats': 1, 'source_leading_beats': 1},
               sigs=[(0, 1, 4), (1, 1, 4)])
 

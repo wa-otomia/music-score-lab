@@ -114,13 +114,13 @@ def test_v8_tempo_in_force_after_trimmed_lead_in(tmp_path):
 def test_v9_mid_bar_tempo_change_is_reported(tmp_path):
     score = build(tmp_path, [(0, KICK), (4, KICK), (8, KICK)], tempo=120, tempos=[(6, 160)], **FOUR)
     assert score.bars[1].tempo == 160
-    assert any('中途的速度变化' in w for w in score.warnings)
+    assert any('tempo change in the middle' in w for w in score.warnings)
 
 
 def test_v18_late_first_time_signature_keeps_4_4_before_it(tmp_path):
     score = build(tmp_path, [(0, KICK), (8, KICK), (11, KICK)], sigs=[(8, 3, 4)])
     assert [b.beats for b in score.bars] == [4, 4, 3, 3]
-    assert any('之前的部分按 4/4' in w for w in score.warnings)
+    assert any('before it is treated as 4/4' in w for w in score.warnings)
 
 
 def test_v19_last_event_at_same_tick_wins(tmp_path):
@@ -140,7 +140,7 @@ def test_v10_long_silent_pickup_in_6_4(tmp_path):
 
 
 def test_v20_pickup_longer_than_bar_is_rejected(tmp_path):
-    with pytest.raises(ScoreError, match='弱起'):
+    with pytest.raises(ScoreError, match='pickup'):
         build(tmp_path, [(6, KICK)], {'pickup_beats': 6, 'source_leading_beats': 6}, **FOUR)
 
 
@@ -148,7 +148,7 @@ def test_v20_pickup_longer_than_bar_is_rejected(tmp_path):
 
 def test_v12_simultaneous_snares_are_reported(tmp_path):
     score = build(tmp_path, [(0, 38), (0, 40), (1, KICK)], **FOUR)
-    assert any('同一位置' in w and '无法区分' in w for w in score.warnings)
+    assert any('same staff position' in w and 'cannot be told apart' in w for w in score.warnings)
 
 
 # --- V16/V17/V22/V24: engraving details -------------------------------------------------------
@@ -209,7 +209,7 @@ def test_v26_validator_catches_tampering(tmp_path):
         if head.text == 'triangle':
             head.text = 'normal'
     tree.write(path, encoding='utf-8', xml_declaration=True)
-    with pytest.raises(ValidationError, match='重新转换'):
+    with pytest.raises(ValidationError, match='fresh conversion'):
         validate_score.validate_musicxml(score, path)
 
 
@@ -255,7 +255,7 @@ def test_v3_v4_quotes_dashes_ligatures_and_long_footer(tmp_path):
 
 
 @pdf_only
-@pytest.mark.parametrize('title, message', [('Emoji 🥁', '方框'), ('〜 と ～', '同一个字形')])
+@pytest.mark.parametrize('title, message', [('Emoji 🥁', 'boxes'), ('〜 と ～', 'same glyph')])
 def test_v13_v27_unprintable_or_ambiguous_text_fails_clearly(tmp_path, title, message):
     score = build(tmp_path, [(0, KICK)], {'title': title}, **FOUR)
     (tmp_path / 'work').mkdir()

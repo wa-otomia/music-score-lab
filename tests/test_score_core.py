@@ -39,7 +39,7 @@ def test_settings_validation(meta):
 def test_summary_and_instruments_used(tmp_path):
     score = build(tmp_path, [(0, KICK), (0, 49), (1, SNARE), (1.5, HH), (2, 44)], sigs=[(0, 4, 4)])
     text = score.summary()
-    assert '1 小节' in text and '记谱 5 个音' in text and '选轨' in text
+    assert '1 bar,' in text and '5 notes engraved' in text and 'track selection' in text
     used = score.instruments_used()
     letters = [inst.staff for _n, inst in used]
     assert letters == sorted(letters, key=STAFF_LETTERS.index, reverse=True)  # high to low
@@ -67,7 +67,7 @@ def test_bad_midi_and_yaml(tmp_path):
     meta.write_text('title: [unclosed\n')
     with pytest.raises(ScoreError, match='YAML'):
         core_build(ok, meta)
-    with pytest.raises(ScoreError, match='找不到'):
+    with pytest.raises(ScoreError, match='not found'):
         core_build(ok, tmp_path / 'missing.yaml')
 
 

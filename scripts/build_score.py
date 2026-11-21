@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""一条命令：鼓 MIDI + 元数据 → score.musicxml + score.pdf，并逐项校验。
+"""One command: drum MIDI + metadata -> score.musicxml + score.pdf, with every check run.
 
     python3 scripts/build_score.py song.mid --metadata metadata.yaml --out-dir build/song
 
-输出目录里会有：
-  score.musicxml   可编辑的 MusicXML 4.0（MuseScore 等可直接打开）
-  score.pdf        打印用 A4 鼓谱（标题等文字可复制，谱面为矢量）
-任何一步失败都以非零退出码结束，并说明需要改什么（MIDI、元数据或鼓映射）。
+The output directory will contain:
+  score.musicxml   editable MusicXML 4.0 (opens directly in MuseScore etc.)
+  score.pdf        printable A4 drum score (header text is copyable, the staff is vector)
+Any failing step ends with a non-zero exit code and says what to change (MIDI, metadata or drum map).
 """
 from __future__ import annotations
 
@@ -22,39 +22,40 @@ import validate_score
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='鼓 MIDI + 元数据 → MusicXML + PDF（含校验）')
-    parser.add_argument('midi', type=Path, help='鼓 MIDI 文件（FL Studio FPC 导出、GM 第 10 通道等均可）')
-    parser.add_argument('--metadata', type=Path, required=True, help='曲目元数据 YAML，见 docs/metadata.md')
-    parser.add_argument('--out-dir', type=Path, required=True, help='输出目录')
-    parser.add_argument('--drum-map', help='覆盖元数据中的鼓映射：内置名（gm、fpc-default）或 YAML 路径')
-    parser.add_argument('--track', action='append', help='只用名称包含该文字的轨道（可重复）')
-    parser.add_argument('--channel', action='append', type=int, help='只用该 MIDI 通道 1–16（可重复）')
-    parser.add_argument('--no-pdf', action='store_true', help='只生成 MusicXML（不需要 TeX 环境）')
+    parser = argparse.ArgumentParser(description='Drum MIDI + metadata -> MusicXML + PDF (with validation)')
+    parser.add_argument('midi', type=Path, help='drum MIDI file (FL Studio FPC export, GM channel 10, etc.)')
+    parser.add_argument('--metadata', type=Path, required=True, help='song metadata YAML, see docs/metadata.md')
+    parser.add_argument('--out-dir', type=Path, required=True, help='output directory')
+    parser.add_argument('--drum-map', help='override the drum map in the metadata: bundled name (gm, fpc-default) or YAML path')
+    parser.add_argument('--track', action='append', help='use only tracks whose name contains this text (repeatable)')
+    parser.add_argument('--channel', action='append', type=int, help='use only this MIDI channel, 1-16 (repeatable)')
+    parser.add_argument('--no-pdf', action='store_true', help='generate MusicXML only (no TeX environment needed)')
     parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
-                        help='印出（--legend）或不印（--no-legend）乐器凡例；默认按元数据 legend，未写则不印')
-    parser.add_argument('--work-dir', type=Path, help='保留 PDF 中间文件（TeX 源码、未合成的谱页）的目录')
+                        help='print (--legend) or omit (--no-legend) the instrument legend; default follows the metadata legend, omitted if unset')
+    parser.add_argument('--work-dir', type=Path, help='directory to keep PDF intermediates (TeX source, unmerged score pages)')
     parser.add_argument('--xsd', type=Path, default=validate_score.default_xsd(),
-                        help='MusicXML 4.0 XSD 路径（也可设环境变量 MUSICXML_XSD）；提供时做 schema 校验')
+                        help='path to the MusicXML 4.0 XSD (or set MUSICXML_XSD); schema validation runs when given')
     args = parser.parse_args(argv)
 
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
                             cli={'tracks': args.track, 'channels': args.channel})
     except ScoreError as exc:
-        print(f'错误：{exc}', file=sys.stderr)
+        print(f'Error: {exc}', file=sys.stderr)
         return 2
     if args.legend is not None:
         score.metadata['legend'] = args.legend
     early_warnings = list(score.warnings)
     for warning in early_warnings:
-        print(f'提示：{warning}', file=sys.stderr)
-    print(score.summary())
+        print(f'Note: {warning}', file=sys.stderr)
+    title = str(score.metadata.get('title') or '').strip()
+    print(f'"{title}": {score.summary()}' if title else score.summary())
 
     out = args.out_dir
     try:
         validate_score.check_xsd(args.xsd)
         if out.exists() and not out.is_dir():
-            raise RuntimeError(f'--out-dir 指向的是已有文件而不是目录：{out}')
+            raise RuntimeError(f'--out-dir points to an existing file, not a directory: {out}')
         out.mkdir(parents=True, exist_ok=True)
         # write next to the targets first; replace score.* only after every check passed
         musicxml, pdf = out / 'score.musicxml', out / 'score.pdf'
@@ -70,16 +71,16 @@ def main(argv: list[str] | None = None) -> int:
                     info = render_score.render(score, new_pdf, Path(temp))
             print(validate_score.validate_pdf(score, new_pdf))
             new_pdf.replace(pdf)
-            print(f'{pdf}: A4 {info["pages"]} 页')
+            print(f'{pdf}: A4, {info["pages"]} page(s)')
         new_xml.replace(musicxml)
         print(musicxml)
         for warning in score.warnings[len(early_warnings):]:
-            print(f'提示：{warning}', file=sys.stderr)
+            print(f'Note: {warning}', file=sys.stderr)
     except (ScoreError, RuntimeError, OSError) as exc:
-        print(f'错误：{exc}', file=sys.stderr)
+        print(f'Error: {exc}', file=sys.stderr)
         return 2
     except validate_score.ValidationError as exc:
-        print(f'校验失败：{exc}', file=sys.stderr)
+        print(f'Validation failed: {exc}', file=sys.stderr)
         return 1
     finally:
         for leftover in (out / '.score.musicxml.new', out / '.score.pdf.new'):

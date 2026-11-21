@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""校验生成的 MusicXML 与 PDF 是否忠实于 MIDI 模型。
+"""Check that the generated MusicXML and PDF are faithful to the MIDI model.
 
-MusicXML：
-- （提供 XSD 时）符合 MusicXML 4.0 schema；
-- 小节数、拍号、弱起与模型一致；每个声部每小节的时值总和等于小节长度；
-- 每个 MIDI 音符的记谱次数与模型一致；带横梁的音符层级与其时值相符。
+MusicXML:
+- (when an XSD is given) conforms to the MusicXML 4.0 schema;
+- bar count, time signatures and pickup match the model; each voice sums to the bar length in every bar;
+- every MIDI note is engraved the same number of times as in the model; beam levels match note values.
 
-PDF：
-- 所有字体都已嵌入、带 ToUnicode，且只有标题用的日文字体（谱面字形已转为路径）；
-- 每页能提取的文字**恰好**是标题区 / 图例 / 页眉 / 页码，谱面不产生任何可复制字符；
-- 有矢量谱面，没有位图。
+PDF:
+- all fonts are embedded with ToUnicode, and only the Japanese header font remains (score glyphs are outlined);
+- the text extractable from each page is **exactly** the header / legend / running head / page number; the staff yields no copyable characters;
+- there is a vector score and no bitmaps.
 """
 from __future__ import annotations
 
@@ -43,23 +43,23 @@ def validate_musicxml(score: Transcription, path: Path, xsd: Path | None = None)
         doc = etree.parse(str(path))
         if not schema.validate(doc):
             errors = '; '.join(f'line {e.line}: {e.message}' for e in list(schema.error_log)[:5])
-            raise ValidationError(f'MusicXML 不符合 XSD：{errors}')
+            raise ValidationError(f'MusicXML does not conform to the XSD: {errors}')
     root = ET.parse(path).getroot()
-    check(root.tag == 'score-partwise', '根元素必须是 score-partwise')
+    check(root.tag == 'score-partwise', 'root element must be score-partwise')
     measures = root.findall('part/measure')
-    check(len(measures) == len(score.bars), f'小节数 {len(measures)} ≠ 模型 {len(score.bars)}')
+    check(len(measures) == len(score.bars), f'bar count {len(measures)} != model {len(score.bars)}')
     divisions = int(root.findtext('part/measure/attributes/divisions'))
-    check(divisions == R, f'divisions 应为 {R}')
+    check(divisions == R, f'divisions should be {R}')
     counts: Counter = Counter()
     for bar, measure in zip(score.bars, measures):
-        where = f'第 {bar.number} 小节'
-        check(measure.get('number') == str(bar.number), f'{where}: number 属性不符')
-        check((measure.get('implicit') == 'yes') == bar.pickup, f'{where}: 弱起 implicit 标记不符')
+        where = f'bar {bar.number}'
+        check(measure.get('number') == str(bar.number), f'{where}: number attribute mismatch')
+        check((measure.get('implicit') == 'yes') == bar.pickup, f'{where}: pickup implicit flag mismatch')
         beats = measure.findtext('attributes/time/beats')
         if bar.index == 0 or bar.show_meter:
-            check(beats == str(bar.beats), f'{where}: 拍号应为 {bar.beats}/4，得到 {beats}')
+            check(beats == str(bar.beats), f'{where}: time signature should be {bar.beats}/4, got {beats}')
         else:
-            check(beats is None, f'{where}: 不应重复拍号')
+            check(beats is None, f'{where}: time signature should not be repeated')
         spans: Counter = Counter()
         for note in measure.findall('note'):
             grace = note.find('grace') is not None
@@ -70,19 +70,19 @@ def validate_musicxml(score: Transcription, path: Path, xsd: Path | None = None)
             if note.find('rest') is None and not grace:
                 inst = note.find('instrument').get('id')
                 counts[int(inst.rsplit('I', 1)[1])] += 1
-                check(note.findtext('stem') == ('up' if voice == 1 else 'down'), f'{where}: 声部 {voice} 符干方向错误')
+                check(note.findtext('stem') == ('up' if voice == 1 else 'down'), f'{where}: wrong stem direction in voice {voice}')
             levels = [int(b.get('number')) for b in note.findall('beam')]
             if levels:
                 kind = note.findtext('type')
                 allowed = BEAM_LEVELS.get(kind, 0)
-                check(max(levels) <= allowed, f'{where}: {kind} 音符不应有 {max(levels)} 层横梁')
-                check(levels == list(range(1, len(levels) + 1)), f'{where}: 横梁层级不连续 {levels}')
+                check(max(levels) <= allowed, f'{where}: a {kind} note should not have {max(levels)} beam level(s)')
+                check(levels == list(range(1, len(levels) + 1)), f'{where}: beam levels are not contiguous {levels}')
         check(spans == Counter({1: bar.length, 2: bar.length}),
-              f'{where}: 声部时值 {dict(spans)}，应各为 {bar.length}')
+              f'{where}: voice durations {dict(spans)}, each should be {bar.length}')
     expected = Counter(n for bar in score.bars for hits in bar.events.values() for n in hits)
-    check(counts == expected, f'记谱音符与模型不一致：多 {dict(counts - expected)}，少 {dict(expected - counts)}')
+    check(counts == expected, f'engraved notes differ from the model: extra {dict(counts - expected)}, missing {dict(expected - counts)}')
     compare_with_model(score, root)
-    return f'MusicXML OK：{len(measures)} 小节，{sum(counts.values())} 个音'
+    return f'MusicXML OK: {len(measures)} bar{"" if len(measures) == 1 else "s"}, {sum(counts.values())} note{"" if sum(counts.values()) == 1 else "s"}'
 
 
 def _canonical(measure: ET.Element) -> list[tuple]:
@@ -122,8 +122,8 @@ def compare_with_model(score: Transcription, root: ET.Element) -> None:
         a, b = _canonical(got), _canonical(want)
         if a != b:
             index = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
-            detail = f'文件：{a[index] if index < len(a) else "（缺失）"}；应为：{b[index] if index < len(b) else "（多余）"}'
-            raise ValidationError(f'第 {bar.number} 小节与 MIDI 重新转换的结果不一致：{detail}')
+            detail = f'file: {a[index] if index < len(a) else "(missing)"}; expected: {b[index] if index < len(b) else "(extra)"}'
+            raise ValidationError(f'bar {bar.number} differs from a fresh conversion of the MIDI: {detail}')
 
 
 def normalize(text: str) -> str:
@@ -136,25 +136,25 @@ def validate_pdf(score: Transcription, path: Path) -> str:
     from pdf_tounicode import tounicode_text
     with pymupdf.open(path) as doc:
         pages = len(doc)
-        check(pages > 0, 'PDF 没有页面')
+        check(pages > 0, 'PDF has no pages')
         expected = expected_page_text(score, pages)
         fonts: set[str] = set()
         for index, page in enumerate(doc):
-            where = f'第 {index + 1} 页'
-            check(abs(page.rect.width - 595.28) < 1 and abs(page.rect.height - 841.89) < 1, f'{where}: 不是 A4')
-            check(len(page.get_drawings()) > 0, f'{where}: 没有矢量谱面')
-            check(not page.get_images(full=True), f'{where}: 含位图，谱面应为矢量')
+            where = f'page {index + 1}'
+            check(abs(page.rect.width - 595.28) < 1 and abs(page.rect.height - 841.89) < 1, f'{where}: not A4')
+            check(len(page.get_drawings()) > 0, f'{where}: no vector score')
+            check(not page.get_images(full=True), f'{where}: contains a bitmap; the score should be vector')
             for font in page.get_fonts(full=True):
                 fonts.add(font[3])
             want = normalize(''.join(expected[index]))
             # with ActualText (Poppler/MuPDF/PDFium) and with ToUnicode only (pdf.js, Preview)
             for label, got in (('ActualText', page.get_text()), ('ToUnicode', tounicode_text(doc, page))):
                 got = normalize(got)
-                check(got == want, f'{where}（{label}）: 可提取文字与预期不符\n  预期：{want[:200]}\n  实际：{got[:200]}')
+                check(got == want, f'{where} ({label}): extractable text differs from expected\n  expected: {want[:200]}\n  actual:   {got[:200]}')
     for name in fonts:
-        check('NotoSansCJK' in name, f'谱面字体未转为路径或混入了其他字体：{name}')
+        check('NotoSansCJK' in name, f'score font was not outlined or another font is mixed in: {name}')
     _check_pdffonts(path)
-    return f'PDF OK：{pages} 页，文字可复制且只含标题/图例/页眉/页码，字体 {sorted(fonts)}'
+    return f'PDF OK: {pages} page(s), text is copyable and contains only header/legend/running head/page number, fonts {sorted(fonts)}'
 
 
 def _check_pdffonts(path: Path) -> None:
@@ -166,7 +166,7 @@ def _check_pdffonts(path: Path) -> None:
     rows = subprocess.run(['pdffonts', str(path)], capture_output=True, text=True, check=True).stdout.splitlines()[2:]
     for row in rows:
         cols = row.split()
-        check(cols[-5:-2] == ['yes', 'yes', 'yes'], f'字体未完整嵌入或缺少 ToUnicode：{row}')
+        check(cols[-5:-2] == ['yes', 'yes', 'yes'], f'font is not fully embedded or lacks ToUnicode: {row}')
 
 
 def default_xsd() -> Path | None:
@@ -180,20 +180,20 @@ class SetupError(RuntimeError):
 
 def check_xsd(xsd: Path | None) -> None:
     if xsd is not None and not xsd.is_file():
-        raise SetupError(f'找不到 MusicXML XSD：{xsd}（检查 --xsd 或环境变量 MUSICXML_XSD）')
+        raise SetupError(f'MusicXML XSD not found: {xsd} (check --xsd or the MUSICXML_XSD environment variable)')
     if xsd is not None:
         try:
             from lxml import etree
         except ImportError:
-            raise SetupError('XSD 校验需要 lxml（pip install lxml 或 apt install python3-lxml）') from None
+            raise SetupError('XSD validation needs lxml (pip install lxml or apt install python3-lxml)') from None
         try:
             etree.XMLSchema(etree.parse(str(xsd)))
         except (etree.Error, OSError) as exc:
-            raise SetupError(f'MusicXML XSD 无法读取或解析：{xsd}（{exc}）') from None
+            raise SetupError(f'MusicXML XSD cannot be read or parsed: {xsd} ({exc})') from None
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='校验 MusicXML / PDF 是否忠实于 MIDI')
+    parser = argparse.ArgumentParser(description='Check that MusicXML / PDF are faithful to the MIDI')
     parser.add_argument('midi', type=Path)
     parser.add_argument('--metadata', type=Path, required=True)
     parser.add_argument('--drum-map')
@@ -202,15 +202,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--musicxml', type=Path)
     parser.add_argument('--pdf', type=Path)
     parser.add_argument('--xsd', type=Path, default=default_xsd(),
-                        help='MusicXML 4.0 musicxml.xsd 路径（也可设环境变量 MUSICXML_XSD）')
+                        help='path to the MusicXML 4.0 musicxml.xsd (or set MUSICXML_XSD)')
     args = parser.parse_args(argv)
     if not args.musicxml and not args.pdf:
-        parser.error('至少指定 --musicxml 或 --pdf 之一')
+        parser.error('specify at least one of --musicxml or --pdf')
     try:
         check_xsd(args.xsd)
         for target in (args.musicxml, args.pdf):
             if target is not None and not target.is_file():
-                raise SetupError(f'找不到文件：{target}')
+                raise SetupError(f'file not found: {target}')
         score = build_score(args.midi, args.metadata, args.drum_map,
                             cli={'tracks': args.track, 'channels': args.channel})
         if args.musicxml:
@@ -218,10 +218,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.pdf:
             print(validate_pdf(score, args.pdf))
     except ValidationError as exc:
-        print(f'校验失败：{exc}', file=sys.stderr)
+        print(f'Validation failed: {exc}', file=sys.stderr)
         return 1
     except (ScoreError, SetupError) as exc:
-        print(f'错误：{exc}', file=sys.stderr)
+        print(f'Error: {exc}', file=sys.stderr)
         return 2
     return 0
 
