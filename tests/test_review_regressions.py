@@ -168,7 +168,7 @@ def test_v17_one_accent_per_chord(tmp_path):
 def test_v22_rest_inside_tuplet_printed_for_its_voice(tmp_path):
     hits = [(2, KICK)] + [(2 + Fraction(k, 6), SNARE) for k in (1, 2, 4)]
     tex = midi_to_musixtex.convert(build(tmp_path, hits, **FOUR))
-    assert r'\vrest{i}{64}' in tex
+    assert r'\zcharnote{i}{\musixchar64}' in tex  # hand 16th rest, raised
 
 
 def test_v24_piece_ends_with_final_double_bar(tmp_path):
@@ -365,3 +365,35 @@ def test_drag_prints_two_beamed_grace_notes(tmp_path):
     assert graces[2].find('grace').get('slash') == 'yes'  # the flam
     tex = midi_to_musixtex.convert(score)
     assert r'\tinynotesize\ibbu2{j}0' in tex and r'\@tqh2{j}' in tex
+
+
+# --- every voice fills every beat with its own rests (user request) -------------------------------
+
+def test_each_voice_prints_its_rests(tmp_path):
+    # hands play quarters, feet play kick on 1& and 3,3&: foot rests must be printed
+    hits = [(b, HH) for b in range(4)] + [(1, SNARE), (3, SNARE), (0.5, KICK), (2, KICK), (2.5, KICK)]
+    tex = midi_to_musixtex.convert(build(tmp_path, hits, **FOUR))
+    bar = tex.split('% bar 1', 1)[1]
+    assert bar.count(r'\zcharnote{a}{\musixchar63}') == 1   # foot 8th rest on beat 1
+    assert bar.count(r'\zcharnote{a}{\musixchar62}') == 2   # foot quarter rests on beats 2 and 4
+
+
+def test_shared_rest_when_both_voices_rest(tmp_path):
+    tex = midi_to_musixtex.convert(build(tmp_path, [(0, 49), (0, KICK), (2, HH), (2, KICK)], **FOUR))
+    bar = tex.split('% bar 1', 1)[1]
+    assert r'\qp' in bar and 'musixchar62' not in bar  # one centred quarter rest, not two
+
+
+def test_silent_voice_gets_a_whole_rest_mid_bar(tmp_path):
+    tex = midi_to_musixtex.convert(build(tmp_path, [(i / 2, HH) for i in range(8)], **FOUR))
+    bar = tex.split('% bar 1', 1)[1]
+    groups = [g for g in bar.split('\n') if g.startswith('\\vnotes')]
+    index = next(i for i, g in enumerate(groups) if r'\zcharnote{g}{\musixchar61}' in g)
+    assert 2 <= index <= 5
+
+
+def test_legend_is_off_by_default_and_switchable(tmp_path):
+    score = build(tmp_path, [(0, KICK)], **FOUR)
+    assert '凡例' not in render_score.expected_page_text(score, 1)[0]
+    score.metadata['legend'] = True
+    assert '凡例' in render_score.expected_page_text(score, 1)[0]

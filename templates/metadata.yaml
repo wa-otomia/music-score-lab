@@ -16,7 +16,7 @@ note: 本譜には採譜者による再構成・創作を含みます。   # 印
 # copyright: "© …"                 # 印在第一页底部
 # credits:                         # 改写职务标签
 #   vocal: ボーカル
-# legend: true                     # 第一页是否印凡例（true / false，不加引号）
+# legend: true                     # 第一页印乐器凡例（默认不印；true / false，不加引号；也可用 --legend）
 
 # ---- MIDI 与鼓映射
 drum_map: gm                       # gm（GM 第 10 通道等）| fpc-default（FL Studio FPC）| 映射 YAML 路径

@@ -36,7 +36,6 @@ PREAMBLE = r"""\input musixtex
 \voffset-6mm
 \overfullrule=0pt
 \def\tl@symbol{\def\q@u{\lower.5\internote\hbox{\musixchar116}}}
-\def\vrest#1#2{\zcharnote{#1}{\musixchar#2}}
 % Cross noteheads: the stem starts at the tip of the arm (upper right for up stems,
 % lower left for down stems) instead of at the centre of the X.
 \def\x@adj{.9\internote}
@@ -244,19 +243,6 @@ def tempo_mark(bar: Bar) -> str:
     return r'\zcharnote{' + pitch + r'}{\metron{\qu}{' + f'{bar.tempo:g}' + '}}'
 
 
-def silent_spans(bar: Bar, voices: dict[str, list[VoiceItem]]) -> list[tuple[int, int]]:
-    covered = sorted((it.start, it.start + it.duration) for items in voices.values()
-                     for it in items if not it.is_rest)
-    spans, cursor = [], 0
-    for a, b in covered:
-        if a > cursor:
-            spans.append((cursor, a))
-        cursor = max(cursor, b)
-    if cursor < bar.length:
-        spans.append((cursor, bar.length))
-    return spans
-
-
 def bar_is_empty(bar: Bar) -> bool:
     return not bar.events
 
@@ -272,26 +258,29 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         for it in items:
             if not it.is_rest:
                 timeline.setdefault(it.start, {})[part] = it
-    hand_t, foot_t = voice_tuplets(bar, 'hand'), voice_tuplets(bar, 'foot')
-    tuplets = {**foot_t, **hand_t}
-    # beats where one voice is in tuplets and the other plays straight: rests per voice only
-    def plays(part: str, beat: int) -> bool:
-        return any(beat * R <= t < (beat + 1) * R and any(h.inst.part == part for h in hs.values())
-                   for t, hs in bar.events.items())
-    mixed = {b for b in bar.triplet_beats if (b in hand_t) != (b in foot_t) and plays('hand', b) and plays('foot', b)}
-    silent = [(a, b) for a, b in silent_spans(bar, voices) if not any(x * R <= a < (x + 1) * R for x in mixed)]
-    for a, b in silent:
-        for rest in _rests(a, b, bar, tuplets):
-            timeline.setdefault(rest.start, {})['rest'] = rest
-    # A rest inside a tuplet group is printed for its own voice (raised for hands, lowered
-    # for feet) even while the other voice plays, so the tuplet visibly adds up.
+    # Every voice fills every beat: each voice's rests are printed (hands above, feet
+    # below).  Two rests of the same length at the same moment share one centred rest.
+    rests: dict[int, dict[str, VoiceItem]] = {}
     for part, items in voices.items():
         for it in items:
-            if it.is_rest and it.tuplet_label:
-                timeline.setdefault(it.start, {})[f'{part}-label'] = it
-            in_mixed = (it.start // R) in mixed and it.duration < R
-            if it.is_rest and (it.tuplet or in_mixed) and not any(a <= it.start < b for a, b in silent):
-                timeline.setdefault(it.start, {})[f'{part}-rest'] = it
+            if it.is_rest:
+                rests.setdefault(it.start, {})[part] = it
+                if it.tuplet_label:
+                    timeline.setdefault(it.start, {})[f'{part}-label'] = it
+    for t, pair in rests.items():
+        hand, foot = pair.get('hand'), pair.get('foot')
+        if hand and foot and (hand.duration, hand.tuplet) == (foot.duration, foot.tuplet):
+            timeline.setdefault(t, {})['rest'] = hand
+        else:
+            for part, it in pair.items():
+                if it.measure_rest:
+                    continue  # placed in the middle of the bar below
+                timeline.setdefault(t, {})[f'{part}-rest'] = it
+    for part, items in voices.items():
+        if len(items) == 1 and items[0].measure_rest and not (rests.get(0, {}).keys() >= {'hand', 'foot'}):
+            # one voice silent for the whole bar: its whole rest goes near the middle
+            middle = min(timeline, key=lambda x: (abs(x - bar.length / 2), x)) if timeline else 0
+            timeline.setdefault(middle, {})[f'{part}-rest'] = items[0]
     times = sorted(timeline)
     collisions: list[int] = []
     groups: list[str] = []
@@ -305,10 +294,9 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         for part, pitch in (('hand', 'q'), ('foot', 'a')):
             if f'{part}-label' in entry:  # tuplet number of a group whose middle is a rest
                 body += r'\ccharnote{' + pitch + r'}{\eightit ' + str(entry[f'{part}-label'].tuplet) + '}'
-        for part, pitch in (('hand', 'i'), ('foot', 'a')):
+        for part in ('hand', 'foot'):
             if f'{part}-rest' in entry:
-                glyph = {'eighth': 63, '16th': 64, 'quarter': 62}[note_type(entry[f'{part}-rest'])[0]]
-                body += r'\vrest{' + pitch + '}{' + str(glyph) + '}'
+                body += voice_rest(entry[f'{part}-rest'], part)
         if 'rest' in entry and not ('hand' in entry or 'foot' in entry):
             body += rest_macro(entry['rest'])
         elif not ('hand' in entry or 'foot' in entry):
@@ -337,6 +325,21 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         width += 2 + math.log2(slot / (R / 4))
     bar.collisions = collisions
     return groups, width
+
+
+# Rest glyphs and the pitch letter they are hung at, per voice.  MusiXTeX's own centred
+# rests correspond to: whole 'k' (hangs from the 4th line), half 'i' (sits on the middle
+# line), shorter rests 'e'.  Hand rests go two staff spaces higher, foot rests lower.
+REST_GLYPH = {'whole': 61, 'half': 60, 'quarter': 62, 'eighth': 63, '16th': 64}
+REST_PITCH = {'hand': {'whole': 'm', 'half': 'm', 'other': 'i'},
+              'foot': {'whole': 'g', 'half': 'e', 'other': 'a'}}
+
+
+def voice_rest(item: VoiceItem, part: str) -> str:
+    name, dots = note_type(item)
+    pitch = REST_PITCH[part].get(name, REST_PITCH[part]['other'])
+    dot = r'\kern.2\qn@width\raise.7\internote\hbox{\musixchar0}' if dots else ''
+    return r'\zcharnote{' + pitch + r'}{\musixchar' + str(REST_GLYPH[name]) + dot + '}'
 
 
 def voices_touch(hand: VoiceItem, foot: VoiceItem) -> bool:

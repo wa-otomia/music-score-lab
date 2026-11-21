@@ -15,7 +15,7 @@
 # 位置以 PAS/Weinberg 鼓谱指南为基础，并保留本仓库原有的日式位置
 # （吊镲在上加一线、踩镲在上加一间、军鼓第三间、底鼓第一间）。
 # 辅助打击乐（拍手、牛铃、铃鼓、康加等）放在同一谱表上，用不同符头区分，
-# 谱面第一页的凡例会列出实际用到的乐器（元数据 legend: false 时不印凡例）。
+# 开启凡例（元数据 legend: true 或 --legend）时，第一页会列出实际用到的乐器。
 
 # --- 脚（下声部）
 kick:            {name: Bass Drum,         name_ja: バスドラム,           abbr: BD,  part: foot, staff: f, head: normal}
@@ -50,7 +50,7 @@ ride:            {name: Ride Cymbal,       name_ja: ライド,                 a
 ride-bell:       {name: Ride Bell,         name_ja: ライド（カップ）, abbr: RB, part: hand, staff: m, head: diamond}
 ride-2:          {name: Ride Cymbal 2,     name_ja: ライド2,                abbr: RC2, part: hand, staff: k, head: x}
 
-# --- 辅助打击乐（同一谱表，靠符头区分；用到时列入凡例，legend: false 时不印凡例）
+# --- 辅助打击乐（同一谱表，靠符头区分；开启凡例时列入凡例）
 tambourine:      {name: Tambourine,        name_ja: タンバリン,           abbr: TB,  part: hand, staff: l, head: diamond}
 cowbell:         {name: Cowbell,           name_ja: カウベル,             abbr: CB,  part: hand, staff: l, head: triangle}
 vibraslap:       {name: Vibraslap,         name_ja: ビブラスラップ,       abbr: VS,  part: hand, staff: h, head: diamond}

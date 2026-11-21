@@ -29,7 +29,7 @@ MusicXML 中写入元数据的原值，不做上述空白处理。
 | `note` | 字符串 | 无 | 备注（标签 `備考`），例如说明含采谱者的再创作 | `本譜には採譜者による再構成・創作を含みます。` |
 | `copyright` | 字符串 | 无 | 印在第一页底部；MusicXML `rights` | `© 2026 …` |
 | `credits` | 映射 | 无 | 改写职务标签，见下文 | `{arranger: アレンジ}` |
-| `legend` | 布尔 | `true` | 是否在第一页印凡例。必须是 YAML 布尔值，写成带引号的字符串（如 `"false"`）会报错 | `false` |
+| `legend` | 布尔 | `false` | 是否在第一页印凡例。必须是 YAML 布尔值，写成带引号的字符串（如 `"false"`）会报错 | `false` |
 | `slug` | 字符串 | 无 | 仅作记录（与目录名相同），程序不使用 | `inochi-ni-kirawareteiru` |
 
 MusicXML 中：`title` 写成 `work-title` 和 `movement-title`；`subtitle` 写成 `<work>` 里的 `work-number`；
@@ -51,8 +51,8 @@ PDF 文档属性：标题为 `<title> ドラム譜`，作者为 `transcriber` �
 4. 歌曲署名：按 `lyricist`、`composer`、`vocal` 的顺序
 5. 鼓谱署名：按 `transcriber`、`arranger` 的顺序
 6. `備考：note`
-7. `BPM <速度>　拍子 <拍号序列>　上声部（符尾上）＝手　下声部（符尾下）＝足`
-8. 凡例（`legend: false` 时省略）
+7. `BPM <速度>`
+8. 凡例（只在 `legend: true` 或命令行 `--legend` 时印出）
 
 第 4、5 行中，**值完全相同**（去掉首尾空白后逐字比较）的职务合并成一个标签，用 `・` 连接，不同的人之间用全角空格分隔。
 比较时不合并中间的连续空白：`A  B`（两个空格）与 `A B` 印出来一样，但不会合并。

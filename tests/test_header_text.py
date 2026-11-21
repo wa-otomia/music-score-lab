@@ -21,12 +21,12 @@ def test_merged_roles(meta, roles, line):
 def test_header_lines_and_credits(tmp_path):
     meta = {'title': 'T', 'subtitle': 'S', 'artist': 'A', 'album': 'X', 'lyricist': 'A', 'composer': 'A',
             'vocal': 'V', 'transcriber': 'C', 'note': 'N', 'credits': {'vocal': 'ボーカル'},
-            'copyright': '© 2026'}
+            'copyright': '© 2026', 'legend': True}
     score = build(tmp_path, [(0, KICK)], meta, sigs=[(0, 4, 4)], tempo=150)
     h = header_text(score)
     assert h.title == 'T'
     assert [t for _s, t in h.lines] == ['S', 'A　『X』', '作詞・作曲：A　ボーカル：V', 'ドラム採譜：C', '備考：N',
-                                        'BPM 150　拍子 4/4　上声部（符尾上）＝手　下声部（符尾下）＝足']
+                                        'BPM 150']
     assert h.running == 'T　A　ドラム譜'
     assert h.footer_note == '© 2026'
     pages = expected_page_text(score, 2)
@@ -40,21 +40,15 @@ def test_unknown_credit_label_is_rejected(tmp_path):
         build(tmp_path, [(0, KICK)], {'credits': {'title': 'x'}}, sigs=[(0, 4, 4)])
 
 
-def test_untitled_and_no_legend(tmp_path):
-    score = build(tmp_path, [(0, KICK)], {'title': None, 'legend': False}, sigs=[(0, 4, 4)])
+def test_untitled_and_legend_off_by_default(tmp_path):
+    score = build(tmp_path, [(0, KICK)], {'title': None}, sigs=[(0, 4, 4)])
     h = header_text(score)
     assert h.title == 'Untitled' and h.running == 'Untitled　ドラム譜'
     assert '凡例' not in expected_page_text(score, 1)[0]
 
 
-def test_meter_summary_with_pickup(song):
-    assert header_text(song).lines[-1][1].startswith('BPM 200　拍子 2/4（弱起） → 4/4　')
-
-
-def test_meter_summary_truncated(tmp_path):
-    sigs = [(0, 4, 4), (4, 3, 4), (7, 2, 4), (9, 5, 4), (14, 4, 4)]
-    score = build(tmp_path, [(b, KICK) for b in range(18)], sigs=sigs)
-    assert '拍子 4/4 → 3/4 → 2/4 → …　' in header_text(score).lines[-1][1]
+def test_tempo_line_is_only_bpm(song):
+    assert header_text(song).lines[-1][1] == 'BPM 200'
 
 
 def test_escape_tex():

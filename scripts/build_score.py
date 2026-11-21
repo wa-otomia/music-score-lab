@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--track', action='append', help='只用名称包含该文字的轨道（可重复）')
     parser.add_argument('--channel', action='append', type=int, help='只用该 MIDI 通道 1–16（可重复）')
     parser.add_argument('--no-pdf', action='store_true', help='只生成 MusicXML（不需要 TeX 环境）')
+    parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
+                        help='印出（--legend）或不印（--no-legend）乐器凡例；默认按元数据 legend，未写则不印')
     parser.add_argument('--work-dir', type=Path, help='保留 PDF 中间文件（TeX 源码、未合成的谱页）的目录')
     parser.add_argument('--xsd', type=Path, default=validate_score.default_xsd(),
                         help='MusicXML 4.0 XSD 路径（也可设环境变量 MUSICXML_XSD）；提供时做 schema 校验')
@@ -41,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     except ScoreError as exc:
         print(f'错误：{exc}', file=sys.stderr)
         return 2
+    if args.legend is not None:
+        score.metadata['legend'] = args.legend
     early_warnings = list(score.warnings)
     for warning in early_warnings:
         print(f'提示：{warning}', file=sys.stderr)

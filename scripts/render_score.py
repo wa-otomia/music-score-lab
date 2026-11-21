@@ -120,18 +120,6 @@ def merged_roles(meta: dict, roles: list[str], labels: dict[str, str]) -> str:
     return '　'.join(label(names) + '：' + value for names, value in groups)
 
 
-def meter_summary(score: Transcription) -> str:
-    meters: list[str] = []
-    for bar in score.bars:
-        if bar.show_meter or not meters:
-            text = f'{bar.beats}/{bar.beat_type}' + ('（弱起）' if bar.pickup else '')
-            if not meters or meters[-1] != text:
-                meters.append(text)
-    if len(meters) > 4:
-        meters = meters[:3] + ['…']
-    return ' → '.join(meters)
-
-
 def header_text(score: Transcription) -> HeaderText:
     meta = score.metadata
     labels = dict(ROLE_LABELS)
@@ -153,7 +141,7 @@ def header_text(score: Transcription) -> HeaderText:
         lines.append((9.0, drums))
     if meta.get('note'):
         lines.append((8.5, labels['note'] + '：' + str(meta['note'])))
-    lines.append((8.5, f'BPM {score.tempo_bpm:g}　拍子 {meter_summary(score)}　上声部（符尾上）＝手　下声部（符尾下）＝足'))
+    lines.append((8.5, f'BPM {score.tempo_bpm:g}'))
     running = '　'.join(x for x in (title, str(meta.get('artist') or ''), 'ドラム譜') if x)
     return HeaderText(title, lines, running, str(meta.get('copyright') or ''))
 
@@ -162,7 +150,7 @@ def expected_page_text(score: Transcription, pages: int) -> list[list[str]]:
     """The only text each page may contain, in content order (used by validate_score.py)."""
     header = header_text(score)
     first = [header.title] + [t for _, t in header.lines]
-    if score.metadata.get('legend', True):
+    if score.metadata.get('legend', False):
         first.append('凡例')
         for _notes, inst in legend_entries(score):
             first += [inst.abbr, inst.name_ja]
@@ -305,7 +293,7 @@ def crop_legend(src: Path, dst: Path) -> None:
 def render(score: Transcription, out: Path, work: Path, *, keep_tex: Path | None = None) -> dict:
     check_tools()
     header = header_text(score)
-    legend = bool(score.metadata.get('legend', True))
+    legend = bool(score.metadata.get('legend', False))
     if legend:
         raw = musixtex(work, 'legend', legend_tex(score))
         outline(raw, work / 'legend-outlined.pdf', work)
@@ -336,12 +324,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--track', action='append', help='只用名称包含该文字的轨道（可重复）')
     parser.add_argument('--channel', action='append', type=int, help='只用该 MIDI 通道 1–16（可重复）')
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
+                        help='印出（--legend）或不印（--no-legend）乐器凡例；默认按元数据 legend，未写则不印')
     parser.add_argument('--keep-tex', type=Path, help='另存生成的 MusiXTeX 源码（调试用）')
     parser.add_argument('--work-dir', type=Path, help='保留中间文件的目录（默认用临时目录并在结束后删除）')
     args = parser.parse_args(argv)
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
                             cli={'tracks': args.track, 'channels': args.channel})
+        if args.legend is not None:
+            score.metadata['legend'] = args.legend
         if args.work_dir:
             args.work_dir.mkdir(parents=True, exist_ok=True)
             info = render(score, args.out, args.work_dir.resolve(), keep_tex=args.keep_tex)

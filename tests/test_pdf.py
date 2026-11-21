@@ -32,6 +32,7 @@ META = {
     'transcriber': '採譜者',
     'arranger': '採譜者',
     'note': '本譜は試験用（『見本』・非売品）- 以上…',
+    'legend': True,
 }
 # What a reader must copy from page 1, in order (render_score.header_text + legend + page number).
 EXPECTED_HEADER = [
@@ -41,7 +42,7 @@ EXPECTED_HEADER = [
     '作詞・作曲：作者・名前　歌：歌い手',
     'ドラム採譜・編曲：採譜者',
     '備考：本譜は試験用（『見本』・非売品）- 以上…',
-    'BPM 128　拍子 4/4　上声部（符尾上）＝手　下声部（符尾下）＝足',
+    'BPM 128',
 ]
 
 
