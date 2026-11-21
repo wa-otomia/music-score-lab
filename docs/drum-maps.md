@@ -5,7 +5,7 @@ MIDI 里的鼓只是音符号（例如 36、38、42）。把音符号印成谱�
 1. **乐器目录** `configs/instruments.yaml`：每种乐器印在哪个位置、用什么符头、有没有开/闭记号、日文名和图例缩写。
 2. **鼓映射** `configs/drum-maps/*.yaml`：MIDI 音符号 → 乐器 ID。曲目元数据的 `note_map` 可以在映射之上再逐个改写。
 
-映射里找不到的音符直接报错并列出音符号，不会猜。
+映射里找不到的音符直接报错，不会猜：错误信息列出这些音符号，指出第一次出现在源 MIDI 第几拍，并用其中一个音符号给出 `note_map` 的写法示例。
 
 ## 乐器目录字段
 
@@ -18,11 +18,11 @@ hihat-open: {name: Open Hi-Hat, name_ja: ハイハット（オープン）, abbr
 | （键） | 是 | 乐器 ID，映射和 `note_map` 用它引用乐器 |
 | `name` | 是 | 英文名，写进 MusicXML 的 `instrument-name`（后面附 MIDI 音符号） |
 | `name_ja` | 否 | 日文名，印在凡例里（可复制文字）。全角括号 `（…）` 及其后的部分在凡例中换到第二行。默认同 `name` |
-| `abbr` | 否 | 凡例缩写，1–4 个字符，只能用 ASCII 字母、数字和 `. + -`。默认取 `name` 前 3 个字符 |
+| `abbr` | 否 | 凡例缩写，1–4 个字符，只能用 ASCII 字母、数字和 `. + -`。默认由 `name` 中的 ASCII 单词生成：有多个单词时取各词首字母大写（最多 4 个，如 `Hi Hat` → `HH`），只有一个单词时取它的前 3 个字符，没有 ASCII 单词时为 `X` |
 | `part` | 是 | `hand`：上声部，符干朝上；`foot`：下声部，符干朝下 |
 | `staff` | 是 | 谱表位置，一个字母 `a`–`s`，见下表 |
 | `head` | 是 | 符头：`normal` 实心椭圆、`x` 叉、`circle-x` 圈叉、`diamond` 空心菱形、`triangle` 三角、`plus` 十字、`rhombus` 实心菱形 |
-| `mark` | 否 | 记号：`open` 小圆圈 ○、`half-open` ⊖、`closed` ＋；不写则无。手部印在符头上方，脚部印在符头下方 |
+| `mark` | 否 | 记号：`open` 小圆圈 ○、`half-open` ⊖、`closed` ＋；不写则无。印在符头上方（手部高 3 个位置，脚部高 2 个位置） |
 
 ### 谱表位置字母
 
@@ -62,10 +62,10 @@ General MIDI Level 1 打击乐键位 35–81，加上 GS/GM2 扩展的 27–34 �
 
 ### `fpc-default`
 
-FL Studio 的鼓采样器 FPC 的默认布局。FL Studio 官方 FPC 手册的说法是：
+FL Studio 的鼓采样器 FPC 的默认布局。据 [FL Studio 在线手册的 FPC 页面](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/FPC.htm)（以下为意译）：
 
-- 布局菜单中的 Default「Matches the Akai MPC™ series unless it has been overwritten with your own layout」，即与 Akai MPC 系列一致；
-- 音符旁括号里的名称是 General MIDI 标准名称；空白预设的 pad「already assigned to the appropriate General MIDI keys」；
+- 布局菜单中的 Default 与 Akai MPC 系列的布局一致（除非已被自己保存的布局覆盖）；
+- 音符旁括号里的名称是 General MIDI 标准名称；空白预设的各个 pad 已经分配到相应的 General MIDI 音符；
 - 每个 pad 的触发音符可以在 Play Key/Octave 中改，布局可以另存。
 
 也就是说，用默认布局时 FPC 发出的音符号就是 GM 打击乐编号，所以 `fpc-default` 直接 `extends: gm`，不改任何音符。
@@ -74,8 +74,6 @@ FL Studio 的鼓采样器 FPC 的默认布局。FL Studio 官方 FPC 手册的�
 FL Studio 直接导出 FPC 时，音符在 MIDI 第 1 通道、轨道名形如 `FPC 1`；转换器的自动选轨会选中它（见 [metadata.md](metadata.md)）。
 **如果改过 pad 的音色或音符**，某个音符号上实际放的已经不是 GM 名称对应的乐器，必须用 `note_map` 或自定义映射改写，
 否则谱面会印错乐器。
-
-参考：FL Studio 在线手册 FPC 页面（image-line.com，`fl-studio-online-manual/html/plugins/FPC.htm`）。
 
 ## 改写音符
 
@@ -120,7 +118,8 @@ notes:
 
 谱面只靠位置、符头和记号区分乐器。两个 MIDI 音符的**位置、符头、记号和声部**都相同时（例如 GM 38 和 40 都是 `snare`），
 它们在谱面上无法区分，凡例中也合并为一项，只印音符号较小者的缩写和日文名。两者同时击打时，两个符头会重叠印在同一处，转换时会给出提示。
-同一位置、不同符头的两个乐器同时击打（例如 ride 与 ride bell）也会提示符头重叠。
+同一位置、不同符头的两个乐器同时击打（例如 ride 与 ride bell）也会提示符头重叠。提示指出第几小节第几拍，并给出改位置的写法，
+例如 `40: {as: snare, staff: l}`。
 MusicXML 中它们仍是不同的乐器（各自保留原 MIDI 音符号，可以正确回放）。
 
 需要在谱面上区分时，用 `note_map` 给其中一个换符头或位置。内置乐器目录中没有两种乐器的位置、符头、记号和声部完全相同。

@@ -438,7 +438,7 @@ class Hit:
     note: int
     inst: Instrument
     velocity: int
-    grace: bool = False
+    grace: int = 0       # grace notes before the stroke: 1 = flam, 2 = drag
     ghost: bool = False
     accent: bool = False
 
@@ -574,12 +574,12 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     # 2. per-beat grid choice; positions in quarter beats relative to score start
     triplet_div = 6 if s.subdivision == 4 else 3
     # The grid is chosen per beat and per voice, so hand triplets over straight feet work.
-    beats_of: dict[tuple[int, str], list[tuple[list[Fraction], SourceHit, bool]]] = defaultdict(list)
+    beats_of: dict[tuple[int, str], list[tuple[list[Fraction], SourceHit, int]]] = defaultdict(list)
     for hit, gs in main_hits:
         main_pos = (Fraction(hit.tick) - shift) / tpq
         beat = math.floor(Fraction(round(main_pos * 12), 12))
         cands = [main_pos] + [(Fraction(g.tick) - shift) / tpq for g in gs]
-        beats_of[(beat, dmap.notes[hit.note].part)].append((cands, hit, bool(gs)))
+        beats_of[(beat, dmap.notes[hit.note].part)].append((cands, hit, len(gs)))
 
     def place(cands: list[Fraction], div: int, beat: int) -> tuple[Fraction, Fraction]:
         """(error, grid position) using the main stroke or, for a flam whose main stroke is

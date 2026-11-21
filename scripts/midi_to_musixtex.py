@@ -90,14 +90,30 @@ class VoiceWriter:
         self.beam = BEAM[part]
 
     def grace(self, item: VoiceItem) -> str:
+        """Small notes before the stroke: one slashed 8th for a flam, two beamed 16ths for a
+        drag (on a spare beam number, 2 for hands / 3 for feet)."""
         heads = [h for h in ordered(item.hits, self.part) if h.grace]
         if not heads:
             return ''
-        routine = r'\@grcu' if self.up else r'\@grcl'
-        parts = [SYMBOL[h.inst.head] + r'\@zq{' + h.inst.staff + '}' for h in heads[:-1]]
-        last = heads[-1]
-        parts.append(SYMBOL[last.inst.head] + routine + '{' + last.inst.staff + '}')
-        return ''.join(parts)
+        count = max(h.grace for h in heads)
+        if count == 1:
+            routine = r'\@grcu' if self.up else r'\@grcl'
+            parts = [SYMBOL[h.inst.head] + r'\@zq{' + h.inst.staff + '}' for h in heads[:-1]]
+            last = heads[-1]
+            parts.append(SYMBOL[last.inst.head] + routine + '{' + last.inst.staff + '}')
+            return ''.join(parts)
+        n, u = ('2', 'u') if self.up else ('3', 'l')
+        pick = max if self.up else min
+        ref = pick((h.inst.staff for h in heads), key=STAFF_LETTERS.index)
+        out = rf'\ibb{u}{n}{{{ref}}}0'
+        for k, end in ((0, False), (1, True)):
+            these = [h for h in heads if h.grace > k]
+            for h in these[:-1]:
+                out += SYMBOL[h.inst.head] + r'\@zq{' + h.inst.staff + '}'
+            last = these[-1]
+            routine = (r'\@tqh' if self.up else r'\@tqb') if end else r'\@qb'
+            out += SYMBOL[last.inst.head] + routine + n + '{' + last.inst.staff + '}'
+        return out
 
     def chord(self, item: VoiceItem, spacing_note: bool) -> str:
         heads, shifted = self.layout(item)
@@ -300,8 +316,9 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         else:
             graces = ''.join(writers[p].grace(entry[p]) for p in ('foot', 'hand') if p in entry)
             if graces:
-                groups.append(r'\notes\multnoteskip\smallvalue\smallnotesize' + graces + r'\en')
-                width += 1.6
+                size = r'\tinyvalue\tinynotesize' if r'\@tq' in graces else r'\smallvalue\smallnotesize'  # drag: beamed pair
+                groups.append(r'\notes\multnoteskip' + size + graces + r'\en')
+                width += 1.6 * (1 + graces.count(r'\@tq'))
             for p in ('foot', 'hand'):
                 if p in entry:
                     writers[p]._current = _run_start(voices[p], entry[p])

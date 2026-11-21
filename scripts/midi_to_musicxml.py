@@ -43,12 +43,14 @@ def instrument_id(note: int) -> str:
 
 
 def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None, *, chord: bool = False,
-               grace: bool = False, first: bool = True, bar: Bar | None = None) -> None:
-    """One <note>, children in the order required by the MusicXML 4.0 schema."""
+               grace: bool = False, first: bool = True, bar: Bar | None = None,
+               grace_beam: str | None = None) -> None:
+    """One <note>, children in the order required by the MusicXML 4.0 schema.
+    A flam grace is a slashed 8th; the two graces of a drag are beamed 16ths."""
     voice = VOICE[part]
     note = sub(measure, 'note')
     if grace:
-        sub(note, 'grace', slash='yes')
+        sub(note, 'grace', **({} if grace_beam else {'slash': 'yes'}))
     if chord:
         sub(note, 'chord')
     if hit is None:
@@ -64,7 +66,7 @@ def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None,
         sub(note, 'instrument', id=instrument_id(hit.note))
     sub(note, 'voice', voice)
     if grace:
-        sub(note, 'type', 'eighth')
+        sub(note, 'type', '16th' if grace_beam else 'eighth')
     elif not item.measure_rest:
         name, dots = note_type(item)
         sub(note, 'type', name)
@@ -87,6 +89,9 @@ def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None,
     if first and not grace:
         for level, value in item.beams:
             sub(note, 'beam', value, number=str(level))
+    if grace and grace_beam and not chord:
+        for level in (1, 2):
+            sub(note, 'beam', grace_beam, number=str(level))
     notations = None
     if first and not grace and item.tuplet_edge:
         notations = sub(note, 'notations')
@@ -110,9 +115,12 @@ def write_voice(measure: ET.Element, bar: Bar, part: str) -> None:
             write_note(measure, item, part, None, bar=bar)
             continue
         heads = sorted(item.hits.values(), key=lambda h: (STAFF_LETTERS.index(h.inst.staff), h.note))
-        graces = [h for h in heads if h.grace]
-        for i, h in enumerate(graces):
-            write_note(measure, item, part, h, grace=True, chord=i > 0, bar=bar)
+        count = max((h.grace for h in heads), default=0)
+        for k in range(count):
+            graces = [h for h in heads if h.grace > k]
+            beam = None if count == 1 else ('begin' if k == 0 else 'end')
+            for i, h in enumerate(graces):
+                write_note(measure, item, part, h, grace=True, chord=i > 0, bar=bar, grace_beam=beam)
         for i, h in enumerate(heads):
             write_note(measure, item, part, h, chord=i > 0, first=i == 0, bar=bar)
 

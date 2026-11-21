@@ -3,19 +3,19 @@
 # 字段：
 #   name     英文名（MusicXML 乐器名）
 #   name_ja  日文名（PDF 图例，可复制文字）
-#   abbr     图例缩写，1–4 个 ASCII 字符（谱面图例里印在音符下方）
+#   abbr     图例缩写，1–4 个 ASCII 字母/数字或 . + -（凡例里印在符头下方）；默认由 name 生成
 #   part     hand = 上声部（符干朝上）；foot = 下声部（符干朝下）
-#   staff    MusiXTeX 音高字母（高音谱号位置）：d 下加一间，e 第一线，f 第一间，g 第二线，
+#   staff    MusiXTeX 音高字母 a–s（高音谱号位置）：d 下加一间，e 第一线，f 第一间，g 第二线，
 #            h 第二间，i 第三线，j 第三间，k 第四线，l 第四间，m 第五线，n 上加一间，
-#            o 上加一线，p 上加二间，q 上加二线，r 上加三间
+#            o 上加一线，p 上加二间，q 上加二线，r 上加三间（全表见 docs/drum-maps.md）
 #   head     normal 实心椭圆 | x 叉 | circle-x 圈叉 | diamond 空心菱形 | triangle 三角
 #            | plus 十字 | rhombus 实心菱形
-#   mark     open（音符上方小圆圈）| half-open | closed（+）；不写则无
+#   mark     open（○）| half-open（⊖）| closed（＋）；印在符头上方（手部高 3 个位置，脚部高 2 个位置）；不写则无
 #
 # 位置以 PAS/Weinberg 鼓谱指南为基础，并保留本仓库原有的日式位置
 # （吊镲在上加一线、踩镲在上加一间、军鼓第三间、底鼓第一间）。
 # 辅助打击乐（拍手、牛铃、铃鼓、康加等）放在同一谱表上，用不同符头区分，
-# 谱面第一页会自动印出实际用到的乐器图例。
+# 谱面第一页的凡例会列出实际用到的乐器（元数据 legend: false 时不印凡例）。
 
 # --- 脚（下声部）
 kick:            {name: Bass Drum,         name_ja: バスドラム,           abbr: BD,  part: foot, staff: f, head: normal}
@@ -50,7 +50,7 @@ ride:            {name: Ride Cymbal,       name_ja: ライド,                 a
 ride-bell:       {name: Ride Bell,         name_ja: ライド（カップ）, abbr: RB, part: hand, staff: m, head: diamond}
 ride-2:          {name: Ride Cymbal 2,     name_ja: ライド2,                abbr: RC2, part: hand, staff: k, head: x}
 
-# --- 辅助打击乐（同一谱表，靠符头区分；图例必印）
+# --- 辅助打击乐（同一谱表，靠符头区分；用到时列入凡例，legend: false 时不印凡例）
 tambourine:      {name: Tambourine,        name_ja: タンバリン,           abbr: TB,  part: hand, staff: l, head: diamond}
 cowbell:         {name: Cowbell,           name_ja: カウベル,             abbr: CB,  part: hand, staff: l, head: triangle}
 vibraslap:       {name: Vibraslap,         name_ja: ビブラスラップ,       abbr: VS,  part: hand, staff: h, head: diamond}

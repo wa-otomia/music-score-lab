@@ -352,3 +352,16 @@ def test_malformed_xsd_is_a_setup_error(tmp_path):
     bad.write_text('not xml', encoding='utf-8')
     with pytest.raises(validate_score.SetupError):
         validate_score.check_xsd(bad)
+
+
+def test_drag_prints_two_beamed_grace_notes(tmp_path):
+    hits = [(0.9, SNARE, 40), (0.95, SNARE, 50), (1, SNARE, 100), (2.95, SNARE, 40), (3, SNARE, 100), (0, KICK)]
+    score = build(tmp_path, hits, tpq=480, **FOUR)
+    assert [h[SNARE].grace for t, h in sorted(score.bars[0].events.items()) if SNARE in h] == [2, 1]
+    root, _ = midi_to_musicxml.convert(score)
+    graces = [n for n in root.iter('note') if n.find('grace') is not None]
+    assert len(graces) == 3
+    assert [b.text for b in graces[0].findall('beam')] == ['begin', 'begin'] and graces[0].find('grace').get('slash') is None
+    assert graces[2].find('grace').get('slash') == 'yes'  # the flam
+    tex = midi_to_musixtex.convert(score)
+    assert r'\tinynotesize\ibbu2{j}0' in tex and r'\@tqh2{j}' in tex
