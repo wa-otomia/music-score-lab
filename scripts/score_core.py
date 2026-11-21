@@ -266,7 +266,8 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     s.subdivision = _int(quant.get('subdivision', meta.get('quantize_divisions_per_beat', 4)), 'quantize.subdivision')
     if s.subdivision not in (2, 4):
         raise ScoreError('quantize.subdivision 只支持 4（16 分）或 2（8 分）')
-    s.tuplets = str(quant.get('tuplets', 'auto'))
+    tuplets = quant.get('tuplets', 'auto')
+    s.tuplets = 'off' if tuplets is False else str(tuplets)  # YAML reads a bare `off` as false
     if s.tuplets not in ('auto', 'off'):
         raise ScoreError('quantize.tuplets 只支持 auto 或 off')
     if 'flam_window' in quant:
@@ -604,10 +605,12 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
         err_s = max(place(c, s.subdivision, beat)[0] * (tol_s / flam_tol if g else 1) for c, _, g in items)
         err_t = max(place(c, triplet_div, beat)[0] * (tol_t / flam_tol if g else 1) for c, _, g in items)
         where = f'第 {beat + 1} 拍（从乐谱起点按四分音符计）的{"手" if part == "hand" else "脚"}声部'
-        # a tuplet must explain every stroke at least as well as a 64th-note grid would
-        # (positions like 3/16 beat lie only 1/48 beat from the sextuplet grid)
-        tuplet_wins = all(g or place(c, triplet_div, beat)[0] <= Fraction(1, 96)
-                          or place(c, triplet_div, beat)[0] <= place(c, 16, beat)[0] for c, _, g in items)
+        # A stroke sitting (almost) exactly on a 64th-note position that is not a tuplet
+        # position (e.g. 3/16 beat, only 1/48 from the sextuplet grid) is a 32nd/64th
+        # rhythm, not a humanized tuplet.
+        exact = Fraction(1, 192)
+        tuplet_wins = all(g or place(c, 16, beat)[0] > exact or place(c, triplet_div, beat)[0] <= exact
+                          for c, _, g in items)
         if err_s <= tol_s:
             div = s.subdivision
         elif s.tuplets == 'auto' and err_t <= tol_t and tuplet_wins:
@@ -616,6 +619,8 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
             unit = '16 分' if s.subdivision == 4 else '8 分'
             if s.tuplets == 'off' and err_t <= tol_t and tuplet_wins:
                 reason = '这一拍是三连音，但元数据设置了 quantize.tuplets: off'
+            elif err_t <= tol_t and not tuplet_wins:
+                reason = '有音符正好落在 64 分音符位置（如 3/16 拍），这是 32/64 分音符节奏而不是三连音'
             else:
                 reason = (f'音符既不在 {unit}网格上，也不在三连音网格上（偏差 {float(min(err_s, err_t)):.3f} 拍）：'
                           '可能是 32 分音符、五连音、同一声部同一拍里直拍与三连音混用，或未量化的演奏')
@@ -766,6 +771,7 @@ class VoiceItem:
     beams: list[tuple[int, str]] = field(default_factory=list)  # [(level, begin|continue|end|forward hook|backward hook)]
     tuplet_edge: str | None = None  # 'start', 'stop' or 'both' for the first/last item of a triplet beat
     tuplet_label: bool = False      # where the tuplet number is printed
+    tuplet_bracket: bool = False    # group is not one beamed run: print a bracket/number, not beam text
     measure_rest: bool = False
 
     @property
@@ -959,6 +965,13 @@ def assign_beams(items: list[VoiceItem], bar: Bar) -> None:
                 it.beams.append((2, 'end'))
             else:
                 it.beams.append((2, 'forward hook' if i == 0 else 'backward hook'))
+    for group in by_beat.values():
+        if any(it.tuplet for it in group):
+            # a tuplet that is not one beamed run of notes (rests inside, flags) needs
+            # its own number/bracket instead of the number on the beam
+            bracket = any(it.is_rest or not it.beams for it in group)
+            for it in group:
+                it.tuplet_bracket = bracket
 
 
 def item_ratio(item: VoiceItem) -> tuple[int, int]:

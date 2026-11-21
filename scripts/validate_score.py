@@ -183,9 +183,13 @@ def check_xsd(xsd: Path | None) -> None:
         raise SetupError(f'找不到 MusicXML XSD：{xsd}（检查 --xsd 或环境变量 MUSICXML_XSD）')
     if xsd is not None:
         try:
-            import lxml  # noqa: F401
+            from lxml import etree
         except ImportError:
             raise SetupError('XSD 校验需要 lxml（pip install lxml 或 apt install python3-lxml）') from None
+        try:
+            etree.XMLSchema(etree.parse(str(xsd)))
+        except (etree.Error, OSError) as exc:
+            raise SetupError(f'MusicXML XSD 无法读取或解析：{xsd}（{exc}）') from None
 
 
 def main(argv: list[str] | None = None) -> int:

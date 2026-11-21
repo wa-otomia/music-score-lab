@@ -94,7 +94,7 @@ def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None,
         for edge in edges:
             attrs = {'type': edge, 'number': '1'}
             if edge == 'start':
-                attrs.update({'bracket': 'no' if item.beams else 'yes', 'show-number': 'actual'})
+                attrs.update({'bracket': 'yes' if item.tuplet_bracket else 'no', 'show-number': 'actual'})
             sub(notations, 'tuplet', **attrs)
     if hit is not None and not grace and (hit.inst.mark or hit.accent):
         notations = notations if notations is not None else sub(note, 'notations')
@@ -137,7 +137,10 @@ def convert(score: Transcription) -> tuple[ET.Element, int]:
     meta = score.metadata
     root = ET.Element('score-partwise', version='4.0')
     title = str(meta.get('title') or 'Untitled')
-    sub(sub(root, 'work'), 'work-title', title)
+    work = sub(root, 'work')
+    if meta.get('subtitle'):
+        sub(work, 'work-number', meta['subtitle'])  # MuseScore 3 shows work-number as the subtitle
+    sub(work, 'work-title', title)
     sub(root, 'movement-title', title)  # MuseScore 3 takes the page title from movement-title
     ident = sub(root, 'identification')
     for kind in ('composer', 'lyricist', 'arranger'):

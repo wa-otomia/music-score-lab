@@ -105,23 +105,30 @@ class VoiceWriter:
         name, dots = note_type(item)
         out: list[str] = []
         for h in heads:
-            out.append(self.ornaments(h))
+            out.append(self.aside(self.ornaments(h), h.note in shifted))
+        # with a head moved right of an up stem, every dot goes right of that column
+        dot_aside = self.up and bool(shifted)
         for h in heads[:-1]:
             if dots:
-                out.append(r'\pt{' + h.inst.staff + '}')
+                out.append(self.aside(r'\pt{' + h.inst.staff + '}', dot_aside))
             # the far head of a second sits on the other side of the stem
             routine = (r'\@rq' if self.up else r'\@lq') if h.note in shifted else r'\@zq'
             out.append(SYMBOL[h.inst.head] + routine + '{' + h.inst.staff + '}')
-        out.append(self.tuplet_label(item, heads))
-        accent = ''
+        extra = self.tuplet_label(item, heads)  # beam text must follow the beam start
         if self.up and any(h.accent for h in heads):
-            # one accent per chord, clear of the stem or beam (beam form must follow the beam start)
+            # one accent per chord, clear of the stem or beam
             top = max((h.inst.staff for h in heads), key=STAFF_LETTERS.index)
-            accent = r'\busf' + str(self.beam) if item.beams else r'\usf{' + shift(top, 9) + '}'
+            extra += r'\busf' + str(self.beam) if item.beams else r'\usf{' + shift(top, 9) + '}'
         if dots:
-            out.append(r'\pt{' + carrier.inst.staff + '}')
-        out.append(self.carrier(item, carrier, name, accent, '' if spacing_note else r'\advancefalse'))
+            out.append(self.aside(r'\pt{' + carrier.inst.staff + '}', dot_aside))
+        out.append(self.carrier(item, carrier, name, extra, '' if spacing_note else r'\advancefalse'))
         return ''.join(out)
+
+    def aside(self, tex: str, moved: bool) -> str:
+        """Shift ornaments of a head that sits on the far side of the stem along with it."""
+        if not tex or not moved:
+            return tex
+        return (r'\roffset{1}{' if self.up else r'\loffset{1}{') + tex + '}'
 
     def layout(self, item: VoiceItem) -> tuple[list[Hit], set[int]]:
         """Heads with the stem carrier last, and the notes whose head is moved to the other
@@ -151,7 +158,7 @@ class VoiceWriter:
         if not item.tuplet_label:
             return ''
         number = item.tuplet
-        if item.beams:
+        if item.beams and not item.tuplet_bracket:
             return r'\def\txt{' + str(number) + '}' + (r'\butext' if self.up else r'\bltext') + str(self.beam)
         pick = max if self.up else min
         p = pick((h.inst.staff for h in heads), key=STAFF_LETTERS.index)
@@ -264,6 +271,8 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
     # for feet) even while the other voice plays, so the tuplet visibly adds up.
     for part, items in voices.items():
         for it in items:
+            if it.is_rest and it.tuplet_label:
+                timeline.setdefault(it.start, {})[f'{part}-label'] = it
             in_mixed = (it.start // R) in mixed and it.duration < R
             if it.is_rest and (it.tuplet or in_mixed) and not any(a <= it.start < b for a, b in silent):
                 timeline.setdefault(it.start, {})[f'{part}-rest'] = it
@@ -277,6 +286,9 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         body = ''
         if i == 0 and bar.tempo is not None and bar.index > 0:
             body += tempo_mark(bar)
+        for part, pitch in (('hand', 'q'), ('foot', 'a')):
+            if f'{part}-label' in entry:  # tuplet number of a group whose middle is a rest
+                body += r'\ccharnote{' + pitch + r'}{\eightit ' + str(entry[f'{part}-label'].tuplet) + '}'
         for part, pitch in (('hand', 'i'), ('foot', 'a')):
             if f'{part}-rest' in entry:
                 glyph = {'eighth': 63, '16th': 64, 'quarter': 62}[note_type(entry[f'{part}-rest'])[0]]
@@ -284,7 +296,7 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         if 'rest' in entry and not ('hand' in entry or 'foot' in entry):
             body += rest_macro(entry['rest'])
         elif not ('hand' in entry or 'foot' in entry):
-            body += r'\sk'  # only a voice rest here: advance without a spacing note
+            body += r'\sk'  # only a voice rest or label here: advance without a spacing note
         else:
             graces = ''.join(writers[p].grace(entry[p]) for p in ('foot', 'hand') if p in entry)
             if graces:
@@ -377,7 +389,8 @@ def convert(score: Transcription, *, header_space: float = 0.0, line_width: floa
                     score.warnings.append(note)
         if len(unit) > 1:
             body.append(r'\global\advance\barno by ' + str(len(unit) - 1))
-        rendered.append((body, width + 1.5))  # + bar line and clearance
+        meter = 3.0 if bar.show_meter and bar.index else 0.0  # a time-signature change takes room too
+        rendered.append((body, width + 1.5 + meter))  # + bar line and clearance
 
     systems: list[list[int]] = [[]]
     used = 0.0

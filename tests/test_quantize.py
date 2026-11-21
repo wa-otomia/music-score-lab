@@ -1,3 +1,4 @@
+from fractions import Fraction
 import random
 
 import pytest
@@ -46,10 +47,23 @@ def test_humanized_triplets_land_on_triplet_grid(tmp_path):
 
 
 def test_loosely_played_triplets_are_rejected_not_guessed(tmp_path):
-    # 1/3 + 0.03 is nearer a 64th-note position than the triplet grid: ambiguous, so refuse
-    hits = [(0, RIDE), (1 / 3 + 0.03, RIDE), (2 / 3 - 0.03, RIDE), (1, RIDE)]
+    # 1/3 + 0.04 is outside the 1/32-beat triplet tolerance: refuse rather than guess
+    hits = [(0, RIDE), (1 / 3 + 0.04, RIDE), (2 / 3 - 0.04, RIDE), (1, RIDE)]
     with pytest.raises(ScoreError):
         build(tmp_path, hits, tpq=480, **FOUR_FOUR)
+
+
+@pytest.mark.parametrize('shift', [-0.015, 0.015, -0.0125, 0.025])
+def test_lightly_humanized_triplets_still_quantize(tmp_path, shift):
+    hits = [(0, SNARE), (Fraction(1, 3) + Fraction(shift).limit_denominator(1000), SNARE), (Fraction(2, 3), SNARE),
+            (2, KICK)]
+    score = build(tmp_path, hits, tpq=960, **FOUR_FOUR)
+    assert sorted(score.bars[0].events)[:3] == [0, 16, 32]
+
+
+def test_bare_yaml_off_disables_tuplets(tmp_path):
+    with pytest.raises(ScoreError, match='tuplets: off'):
+        build(tmp_path, [(i / 3, RIDE) for i in range(3)], {'quantize': {'tuplets': False}}, **FOUR_FOUR)
 
 
 @pytest.mark.parametrize('offset', [3 / 16, 5 / 16, 11 / 16])

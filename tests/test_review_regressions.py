@@ -315,3 +315,40 @@ def test_cross_head_stems_start_at_arm_tip(tmp_path):
     assert r'\do@symbol\@xql{d}' in tex          # pedal hi-hat, stem down
     assert r'\dc@symbol\@xqu{q}' in tex          # china (circle-x)
     assert r'\q@symbol\@qu{j}' in tex            # normal heads keep the centre stem
+
+
+# --- final panel: unbeamed tuplets, moved-head ornaments, subtitle, bad XSD -----------------------
+
+def test_shuffle_tuplet_with_rest_gets_a_number(tmp_path):
+    hits = [(b, HH) for b in range(4)] + [(b + Fraction(2, 3), HH) for b in range(4)] + [(0, KICK)]
+    score = build(tmp_path, hits, **FOUR)
+    hand = voice_items(score.bars[0], 'hand')
+    assert all(it.tuplet_bracket for it in hand if it.tuplet)
+    tex = midi_to_musixtex.convert(score)
+    assert tex.count(r'{\eightit 3}') == 4
+    root, _ = midi_to_musicxml.convert(score)
+    assert {t.get('bracket') for t in root.iter('tuplet') if t.get('type') == 'start'} == {'yes'}
+
+
+def test_beam_text_follows_beam_start(tmp_path):
+    hits = [(Fraction(1, 3), SNARE), (Fraction(2, 3), SNARE), (Fraction(4, 3), SNARE), (Fraction(5, 3), SNARE),
+            (1, SNARE), (0, KICK)]
+    tex = midi_to_musixtex.convert(build(tmp_path, hits, **FOUR))
+    assert r'\butext0\ibu' not in tex
+
+
+def test_ornaments_follow_a_moved_head(tmp_path):
+    tex = midi_to_musixtex.convert(build(tmp_path, [(0, RIDE), (0, 46), (2, KICK)], **FOUR))
+    assert r'\roffset{1}{\ccharnote{q}{$\circ$}}' in tex
+
+
+def test_subtitle_is_work_number_for_musescore(tmp_path):
+    root, _ = midi_to_musicxml.convert(build(tmp_path, [(0, KICK)], {'subtitle': 'Demo'}, **FOUR))
+    assert root.findtext('work/work-number') == 'Demo' and root.findtext('work/work-title') == 'Test'
+
+
+def test_malformed_xsd_is_a_setup_error(tmp_path):
+    bad = tmp_path / 'bad.xsd'
+    bad.write_text('not xml', encoding='utf-8')
+    with pytest.raises(validate_score.SetupError):
+        validate_score.check_xsd(bad)
