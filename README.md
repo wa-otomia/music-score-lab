@@ -33,6 +33,7 @@ python3 scripts/build_score.py scores/inochi-ni-kirawareteiru/source.mid \
 | `--track TEXT` | 只用轨道名包含该文字的轨道（不区分大小写，可重复） |
 | `--channel N` | 只用 MIDI 通道 N（1–16，可重复） |
 | `--no-pdf` | 只生成并校验 MusicXML，不需要 TeX 环境 |
+| `--legend` / `--no-legend` | 印 / 不印第一页的乐器凡例；不指定时按元数据 `legend`，元数据也没写则不印 |
 | `--work-dir DIR` | 保留 PDF 中间文件（TeX 源码、未合成的谱页），便于排查 |
 | `--xsd PATH` | MusicXML 4.0 `musicxml.xsd` 路径；也可设环境变量 `MUSICXML_XSD`。提供时额外做 schema 校验（需要 lxml） |
 
@@ -162,7 +163,7 @@ build/                         本地输出目录，已被 .gitignore 忽略
 
 ```bash
 python3 scripts/midi_to_musicxml.py MIDI --metadata META --out OUT.musicxml
-python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--keep-tex OUT.tex] [--work-dir DIR]
+python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--legend|--no-legend] [--keep-tex OUT.tex] [--work-dir DIR]
 python3 scripts/validate_score.py MIDI --metadata META --musicxml OUT.musicxml --pdf OUT.pdf [--xsd XSD]
 python3 scripts/midi_to_musixtex.py MIDI --metadata META --out OUT.tex     # 只看 MusiXTeX 源码
 python3 scripts/retag_gm_channel10.py source.mid --out build/gm-channel10.mid  # 给只认第 10 通道的软件用
