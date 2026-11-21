@@ -46,12 +46,12 @@ quantize:
 
 # ---- 記譜（反復記号・連桁）
 # notation:
-#   repeats: simile                # simile = 1 小節（%）と 2 小節（//）の反復記号を使う（既定）、off = 使わない（--repeats が優先）
+#   repeats: simile                # simile = % と //（既定）、full = さらに |: ... :| と 1./2. 括弧を追加、off = 使わない（--repeats が優先）
 #   repeat_counters: true          # 1 小節の % が 2 小節以上連続するときに回数（2, 3, 4…）を印字（true / false を引用符なしで）
 #   beam_eighths: beat             # beat = 拍ごとに連桁（既定）、half-bar = 4/4 の半小節 4 連 8 分音符をまとめる（--beam-eighths が優先）
 
 # ---- セクション（リハーサルマーク・複縦線。トップレベルに記述します）
 # sections:
-#   1: Intro                       # 小節番号（1 以上の整数）: 印字可能な ASCII 文字列（1〜24 文字）
+#   1: Intro                       # 元の小節番号（折りたたみ前・1 以上の整数）: 印字可能な ASCII 文字列（1〜24 文字）
 #   9: A
 #   25: Chorus

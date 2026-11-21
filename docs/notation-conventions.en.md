@@ -172,16 +172,19 @@ Enabled only when the metadata sets `dynamics.ghost_below` / `dynamics.accent_ab
 
 - A single empty bar gets a whole-bar rest.
 - Two or more consecutive empty bars are merged into a multi-measure rest (a thick bar with the number of bars in the PDF, `multiple-rest` in MusicXML).
-  Counting restarts at a bar with a time signature change, a tempo change, or a section start; pickup bars are not merged.
+  Counting restarts at a bar with a time signature change, a tempo change, a section start, or a repeat (`|:` / `:|`) or volta (`1.` / `2.`) boundary; pickup bars are not merged.
 
 ## Repeat (Simile) Marks
 
-- Enabled by default (`notation.repeats: simile`), and can be disabled with metadata `notation.repeats: off` or the command-line `--repeats off` (see "Notation" in [metadata.en.md](metadata.en.md)).
+- Defaults to `notation.repeats: simile` (1-bar `%` and 2-bar `//`), and can be switched with metadata `notation.repeats` or the command-line `--repeats` to `full` (adding phrase-aligned `|: ... :|` repeats and 1st/2nd endings) or `off` (disabling all repeats; see "Notation" in [metadata.en.md](metadata.en.md)).
 - **1-bar simile (`%`)**: when a non-empty, non-pickup bar matches the immediately preceding bar (provided the preceding bar is not part of a 2-bar `//` repeat), `%` is printed centered in the measure. When 2 or more `%` bars occur consecutively (3 or more identical bars in a row), small count numbers (`2`, `3`, `4`, …) are printed above the staff over each `%`; an isolated single `%` is unnumbered. Count numbers can be turned off with `notation.repeat_counters: false`.
 - **2-bar simile (`//`)**: when an alternating 2-bar pattern `A | B` (two distinct bars) repeats immediately, a double-slash simile (`//`) with `2` is printed centered astride the barline between the two repeated bars (a 2-bar simile always carries `2` as part of the symbol and is never split across a line break).
-- Repeats break on empty bars, pickup bars, time-signature changes, tempo changes, section starts, or any difference in rhythm, tuplets, voice, staff position, notehead, open/closed mark, grace note, ghost note, or accent (different MIDI notes that engrave with the same position, notehead, mark, and voice compare equal).
+- `%` and `//` repeats break on empty bars, pickup bars, time-signature changes, tempo changes, section starts, repeat/volta (`|:` / `:|` / `1.` / `2.`) boundaries, or any difference in rhythm, tuplets, voice, staff position, notehead, open/closed mark, grace note, ghost note, or accent (different MIDI notes that engrave with the same position, notehead, mark, and voice compare equal).
+- **Section repeats (`|: ... :|`) and 1st/2nd endings (`1.` / `2.`)**: with `notation.repeats: full` (or `--repeats full`), adjacent 4-, 8-, or 16-bar phrases aligned to 4-bar boundaries (measured from bar 1, time-signature changes, or section starts) are folded into `|: ... :|` repeat blocks (with a count label such as `3x` / `4x` above the closing barline when played 3 or more times). When only the final 1–2 bars of a repeated phrase differ (leaving at least 3 shared bars), they are folded into 1st/2nd ending volta brackets (`1.` / `2.`).
+- **Strict lossless matching**: folding under `full` requires exact MIDI note identity (not merely visual identity—for example GM 38 and GM 40 are not folded together), and preserves meter changes, tempo changes, and section boundaries without ever swallowing them inside a repeated pass. Single-bar grooves (all bars visually identical) remain `%` rather than `|: ... :|`, and `%` / `//` never cross repeat or volta boundaries.
+- **Printed bar numbering**: measure numbers on the engraved score advance sequentially (`0` for a pickup bar, then `1, 2, 3, ...`), while metadata `sections` keys always refer to source (unfolded) bar numbers.
 - **PDF**: a new page (page 2 onward) never starts with `%` or `//`; the first bar of a new page is engraved in full and restarts the repeat count.
-- **MusicXML 4.0**: repeats are written with `<measure-style><measure-repeat>` (`slashes="1"` for 1-bar, `slashes="2"` for 2-bar) while keeping all encoded `<note>` elements inside every repeated measure so playback and validation remain lossless.
+- **MusicXML 4.0**: `%` and `//` are written with `<measure-style><measure-repeat>` (`slashes="1"` for 1-bar, `slashes="2"` for 2-bar) while keeping all encoded `<note>` elements inside every repeated measure. Section repeats and voltas in `full` mode use `<barline>` (`<bar-style>`, `<ending>`, `<repeat>`), and validation unrolls them back to the full linear bar sequence to verify the exact bar count, meters, and every MIDI note count.
 
 ## Time Signatures, Pickups and Tempo
 
@@ -191,14 +194,14 @@ Enabled only when the metadata sets `dynamics.ghost_below` / `dynamics.accent_ab
 
 ## Sections and Rehearsal Marks
 
-- Setting the top-level `sections` mapping (`bar_number: ASCII label`) in metadata marks structural sections of the piece (see "Sections" in [metadata.en.md](metadata.en.md)).
-- **Double barline**: a double barline is printed immediately before a section start (in MusicXML, `<barline location="right"><bar-style>light-light</bar-style></barline>` on the preceding measure), except when the section starts at the very first bar of the score or immediately after a pickup bar.
+- Setting the top-level `sections` mapping (`bar_number: ASCII label`) in metadata marks structural sections of the piece (see "Sections" in [metadata.en.md](metadata.en.md)); bar numbers always refer to source (unfolded) bar numbers.
+- **Double barline**: a double barline is printed immediately before a section start (in MusicXML, `<barline location="right"><bar-style>light-light</bar-style></barline>` on the preceding measure), except when the section starts at the very first bar of the score, immediately after a pickup bar, or where a repeat barline (`|:` / `:|`) already stands (repeat barlines take precedence).
 - **Rehearsal mark**: the section label (1–24 printable ASCII characters) is printed in a box above the start of the bar (in MusicXML, `<direction placement="above"><direction-type><rehearsal enclosure="square">`). It works on normal bars, empty bars and multi-measure rests alike, positioned clear of notes, tempo marks and system bar numbers.
 - **Structural resets and line breaks**: a section start splits multi-measure rests and resets 1-bar (`%`) and 2-bar (`//`) simile repeats (preventing a 2-bar repeat template from crossing a section boundary). Line-break optimization strongly favors starting a new system at each section boundary and resets 4-bar phrase alignment from the section start.
 
 ## Layout
 
-- A4 portrait. Line breaks use phrase-aligned optimization: within the line width, the layout strongly favors starting a new system at section boundaries (`sections`) and prefers 4-bar phrases (4-bar boundaries counted from bar 1 or the latest section start); a multi-measure rest counts as 1 bar and a 2-bar simile (`//`) counts as 2 bars and is never split across a line break.
+- A4 portrait. Line breaks use phrase-aligned optimization: within the line width, the layout favors breaking cleanly at section boundaries (`sections`) and repeat boundaries (`|:` / `:|` / end of `2.`), and prefers 4-bar phrases (4-bar boundaries counted from bar 1 or the latest section start); a multi-measure rest counts as 1 bar and a 2-bar simile (`//`) counts as 2 bars and is never split across a line break.
 - When a pickup bar (bar 0) is present, the first system keeps bar 0 together with bars 1–4 (up to 5 bars) whenever width allows. Likewise, the final system may hold up to 5 bars to avoid stretching a lone bar across an entire line. A final barline is printed at the end of the piece.
 - The bar number is printed at the start of each system.
 - The top of the first page is the title block (followed by the legend when the legend is enabled); continuation pages have `<song title>　<artist>　ドラム譜` at the top; every page has its page number `n / N` at the bottom.

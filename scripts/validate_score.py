@@ -36,6 +36,95 @@ def check(condition: bool, message: str) -> None:
         raise ValidationError(message)
 
 
+def _parse_ending_numbers(raw: str | None) -> set[int]:
+    if not raw or not raw.strip():
+        raise ValidationError('MusicXML <ending> is missing a valid number attribute')
+    nums: set[int] = set()
+    for part in raw.split(','):
+        text = part.strip()
+        if not text.isdigit() or int(text) < 1:
+            raise ValidationError(f'MusicXML <ending> has invalid number attribute: {raw!r}')
+        nums.add(int(text))
+    return nums
+
+
+def unroll_measures(measures: list[ET.Element]) -> list[ET.Element]:
+    """Expand MusicXML <barline> repeat and volta markup into linear playback order."""
+    if not measures:
+        return []
+
+    n = len(measures)
+    fwd: list[bool] = [False] * n
+    bwd: list[int | None] = [None] * n
+    end_start: list[set[int] | None] = [None] * n
+    end_stop: list[tuple[set[int], str] | None] = [None] * n
+
+    open_ending: set[int] | None = None
+    for idx, measure in enumerate(measures):
+        mnum = measure.get('number') or str(idx)
+        for bl in measure.findall('barline'):
+            for rep in bl.findall('repeat'):
+                direction = rep.get('direction')
+                if direction == 'forward':
+                    check(not fwd[idx], f'measure {mnum}: duplicate forward repeat')
+                    fwd[idx] = True
+                elif direction == 'backward':
+                    check(bwd[idx] is None, f'measure {mnum}: duplicate backward repeat')
+                    raw_times = rep.get('times')
+                    if raw_times is None:
+                        times = 2
+                    else:
+                        check(raw_times.isdigit() and int(raw_times) >= 2,
+                              f'measure {mnum}: invalid repeat times {raw_times!r}')
+                        times = int(raw_times)
+                    bwd[idx] = times
+                else:
+                    raise ValidationError(f'measure {mnum}: invalid repeat direction {direction!r}')
+            for end in bl.findall('ending'):
+                etype = end.get('type')
+                nums = _parse_ending_numbers(end.get('number'))
+                if etype == 'start':
+                    check(open_ending is None, f'measure {mnum}: nested <ending type="start">')
+                    end_start[idx] = nums
+                    open_ending = nums
+                elif etype in ('stop', 'discontinue'):
+                    check(open_ending is not None, f'measure {mnum}: <ending type="{etype}"> without start')
+                    check(nums == open_ending,
+                          f'measure {mnum}: <ending type="{etype}"> number {sorted(nums)} != open {sorted(open_ending)}')
+                    end_stop[idx] = (nums, etype)
+                    open_ending = None
+                else:
+                    raise ValidationError(f'measure {mnum}: invalid ending type {etype!r}')
+    check(open_ending is None, 'unclosed <ending type="start"> at end of MusicXML')
+
+    out: list[ET.Element] = []
+    i = 0
+    repeat_origin = 0
+    pass_no = 1
+    steps = 0
+    max_steps = max(n * 32, 10000)
+    while i < n:
+        steps += 1
+        if steps > max_steps:
+            raise ValidationError('runaway repeat loop while unrolling MusicXML measures')
+        if fwd[i]:
+            repeat_origin = i
+        if end_start[i] is not None and pass_no not in end_start[i]:
+            while i < n and end_stop[i] is None:
+                i += 1
+            i += 1
+            continue
+        out.append(measures[i])
+        if bwd[i] is not None and pass_no < bwd[i]:
+            pass_no += 1
+            i = repeat_origin
+            continue
+        if bwd[i] is not None or (end_stop[i] is not None and end_stop[i][1] == 'discontinue'):
+            pass_no = 1
+        i += 1
+    return out
+
+
 def validate_musicxml(score: Transcription, path: Path, xsd: Path | None = None) -> str:
     if xsd is not None:
         from lxml import etree
@@ -47,20 +136,22 @@ def validate_musicxml(score: Transcription, path: Path, xsd: Path | None = None)
     root = ET.parse(path).getroot()
     check(root.tag == 'score-partwise', 'root element must be score-partwise')
     measures = root.findall('part/measure')
-    check(len(measures) == len(score.bars), f'bar count {len(measures)} != model {len(score.bars)}')
+    check(bool(measures) == bool(score.bars), f'bar count {len(measures)} != model {len(score.bars)}')
     divisions = int(root.findtext('part/measure/attributes/divisions'))
     check(divisions == R, f'divisions should be {R}')
-    counts: Counter = Counter()
-    for bar, measure in zip(score.bars, measures):
-        where = f'bar {bar.number}'
-        check(measure.get('number') == str(bar.number), f'{where}: number attribute mismatch')
-        check((measure.get('implicit') == 'yes') == bar.pickup, f'{where}: pickup implicit flag mismatch')
-        beats = measure.findtext('attributes/time/beats')
-        if bar.index == 0 or bar.show_meter:
-            check(beats == str(bar.beats), f'{where}: time signature should be {bar.beats}/4, got {beats}')
-        else:
-            check(beats is None, f'{where}: time signature should not be repeated')
+
+    start_num = 0 if (score.bars and score.bars[0].pickup) else 1
+    spans_by_id: dict[int, Counter] = {}
+    notes_by_id: dict[int, Counter] = {}
+    for idx, measure in enumerate(measures):
+        want_num = start_num + idx
+        where = f'bar {want_num}'
+        check(measure.get('number') == str(want_num),
+              f'{where}: number attribute mismatch (got {measure.get("number")})')
+        want_pickup = (idx == 0 and bool(score.bars) and score.bars[0].pickup)
+        check((measure.get('implicit') == 'yes') == want_pickup, f'{where}: pickup implicit flag mismatch')
         spans: Counter = Counter()
+        m_notes: Counter = Counter()
         for note in measure.findall('note'):
             grace = note.find('grace') is not None
             chord = note.find('chord') is not None
@@ -69,20 +160,52 @@ def validate_musicxml(score: Transcription, path: Path, xsd: Path | None = None)
                 spans[voice] += int(note.findtext('duration'))
             if note.find('rest') is None and not grace:
                 inst = note.find('instrument').get('id')
-                counts[int(inst.rsplit('I', 1)[1])] += 1
-                check(note.findtext('stem') == ('up' if voice == 1 else 'down'), f'{where}: wrong stem direction in voice {voice}')
+                m_notes[int(inst.rsplit('I', 1)[1])] += 1
+                check(note.findtext('stem') == ('up' if voice == 1 else 'down'),
+                      f'{where}: wrong stem direction in voice {voice}')
             levels = [int(b.get('number')) for b in note.findall('beam')]
             if levels:
                 kind = note.findtext('type')
                 allowed = BEAM_LEVELS.get(kind, 0)
                 check(max(levels) <= allowed, f'{where}: a {kind} note should not have {max(levels)} beam level(s)')
                 check(levels == list(range(1, len(levels) + 1)), f'{where}: beam levels are not contiguous {levels}')
+        spans_by_id[id(measure)] = spans
+        notes_by_id[id(measure)] = m_notes
+
+    unrolled = unroll_measures(measures)
+    check(len(unrolled) == len(score.bars), f'bar count {len(unrolled)} != model {len(score.bars)}')
+    counts: Counter = Counter()
+    seen_ids: set[int] = set()
+    for bar, measure in zip(score.bars, unrolled):
+        where = f'bar {bar.number}'
+        first_visit = id(measure) not in seen_ids
+        seen_ids.add(id(measure))
+        beats = measure.findtext('attributes/time/beats')
+        beat_type = measure.findtext('attributes/time/beat-type')
+        if bar.index == 0 or bar.show_meter:
+            check(beats == str(bar.beats) and beat_type == str(bar.beat_type),
+                  f'{where}: time signature should be {bar.beats}/{bar.beat_type}, got {beats}/{beat_type}')
+        elif first_visit:
+            check(beats is None, f'{where}: time signature should not be repeated')
+        elif beats is not None:
+            check(beats == str(bar.beats) and beat_type == str(bar.beat_type),
+                  f'{where}: repeated time signature {beats}/{beat_type} != {bar.beats}/{bar.beat_type}')
+        spans = spans_by_id[id(measure)]
         check(spans == Counter({1: bar.length, 2: bar.length}),
               f'{where}: voice durations {dict(spans)}, each should be {bar.length}')
+        counts += notes_by_id[id(measure)]
+    check(len(seen_ids) == len(measures),
+          f'MusicXML has {len(measures) - len(seen_ids)} unplayed engraved measure(s)')
+
     expected = Counter(n for bar in score.bars for hits in bar.events.values() for n in hits)
     check(counts == expected, f'engraved notes differ from the model: extra {dict(counts - expected)}, missing {dict(expected - counts)}')
     compare_with_model(score, root)
-    return f'MusicXML OK: {len(measures)} bar{"" if len(measures) == 1 else "s"}, {sum(counts.values())} note{"" if sum(counts.values()) == 1 else "s"}'
+    note_total = sum(counts.values())
+    note_str = f'{note_total} note{"" if note_total == 1 else "s"}'
+    if len(measures) == len(unrolled):
+        return f'MusicXML OK: {len(measures)} bar{"" if len(measures) == 1 else "s"}, {note_str}'
+    return (f'MusicXML OK: {len(measures)} engraved bar{"" if len(measures) == 1 else "s"} '
+            f'({len(unrolled)} played), {note_str}')
 
 
 def _canonical(measure: ET.Element) -> list[tuple]:
@@ -102,7 +225,10 @@ def _canonical(measure: ET.Element) -> list[tuple]:
                 (reh.get('enclosure'), reh.text) if reh is not None else None,
                 el.findtext('direction-type/metronome/per-minute')))
         elif el.tag == 'barline':
-            out.append(('barline', el.get('location'), el.findtext('bar-style')))
+            out.append((
+                'barline', el.get('location'), el.findtext('bar-style'),
+                tuple((e.get('number'), e.get('type'), e.text) for e in el.findall('ending')),
+                tuple((r.get('direction'), r.get('times')) for r in el.findall('repeat'))))
         elif el.tag == 'backup':
             out.append(('backup', el.findtext('duration')))
         elif el.tag == 'note':
@@ -124,15 +250,20 @@ def _canonical(measure: ET.Element) -> list[tuple]:
 
 def compare_with_model(score: Transcription, root: ET.Element) -> None:
     """The file must match a fresh conversion of the MIDI note for note (catches stale,
-    hand-edited or corrupted files: lost graces, changed heads, tuplets, meters, marks)."""
+    hand-edited or corrupted files: lost graces, changed heads, tuplets, meters, marks, repeats)."""
     from midi_to_musicxml import convert
     fresh, _ = convert(score)
-    for got, want, bar in zip(root.findall('part/measure'), fresh.findall('part/measure'), score.bars):
+    got_measures = root.findall('part/measure')
+    want_measures = fresh.findall('part/measure')
+    check(len(got_measures) == len(want_measures),
+          f'engraved bar count {len(got_measures)} != expected {len(want_measures)}')
+    for got, want in zip(got_measures, want_measures):
         a, b = _canonical(got), _canonical(want)
         if a != b:
             index = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
             detail = f'file: {a[index] if index < len(a) else "(missing)"}; expected: {b[index] if index < len(b) else "(extra)"}'
-            raise ValidationError(f'bar {bar.number} differs from a fresh conversion of the MIDI: {detail}')
+            num = want.get('number') or got.get('number') or '?'
+            raise ValidationError(f'bar {num} differs from a fresh conversion of the MIDI: {detail}')
 
 
 def normalize(text: str) -> str:
@@ -208,8 +339,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--drum-map')
     parser.add_argument('--track', action='append')
     parser.add_argument('--channel', action='append', type=int)
-    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
-                        help='override notation.repeats in the metadata: simile or off')
+    parser.add_argument('--repeats', choices=['off', 'simile', 'full'], default=None,
+                        help='override notation.repeats in the metadata: full, simile, or off')
     parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
                         help='override notation.beam_eighths in the metadata: beat or half-bar')
     parser.add_argument('--musicxml', type=Path)

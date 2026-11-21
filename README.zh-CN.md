@@ -36,6 +36,8 @@ python3 scripts/build_score.py scores/inochi-ni-kirawareteiru/source.mid \
 | `--channel N` | 只用 MIDI 通道 N（1–16，可重复） |
 | `--no-pdf` | 只生成并校验 MusicXML，不需要 TeX 环境 |
 | `--legend` / `--no-legend` | 印 / 不印第一页的乐器凡例；不指定时按元数据 `legend`，元数据也没写则不印 |
+| `--repeats MODE` | 指定反复记号模式（`off`、`simile`、`full`）；优先于元数据 `notation.repeats`（默认为 `simile`） |
+| `--beam-eighths MODE` | 指定 8 分音符横梁分组模式（`beat`、`half-bar`）；优先于元数据 `notation.beam_eighths`（默认为 `beat`） |
 | `--work-dir DIR` | 保留 PDF 中间文件（TeX 源码、未合成的谱页），便于排查 |
 | `--xsd PATH` | MusicXML 4.0 `musicxml.xsd` 路径；也可设环境变量 `MUSICXML_XSD`。提供时额外做 schema 校验（需要 lxml） |
 
@@ -74,6 +76,7 @@ docs/notation-conventions.md   本仓库实现的日式鼓谱记法
 templates/metadata.yaml        新曲目元数据模板
 scripts/build_score.py         主入口：一条命令出 MusicXML + PDF 并校验
 scripts/score_core.py          共用记谱模型：选轨、映射、量化、小节、声部、休止、横梁
+scripts/score_structure.py     共用结构规划：多小节休止、反复记号（% / // / |: :| / 1. 2.）、段落分隔
 scripts/midi_to_musicxml.py    模型 → MusicXML
 scripts/midi_to_musixtex.py    模型 → MusiXTeX 源码
 scripts/render_score.py        MusiXTeX → Ghostscript 转曲 → XeLaTeX 合成 → PDF
@@ -93,13 +96,13 @@ build/                         本地输出目录，已被 .gitignore 忽略
 - **凡例**（默认不印）：元数据写 `legend: true` 或命令行加 `--legend` 时，在标题区下方印出本曲实际用到的乐器，
   每项是一小段谱表上的符头，下面印缩写和日文名；`--no-legend` 可在元数据开启时临时关闭。
 - 续页顶部印 `<曲名>　<艺人>　ドラム譜`；每页底部印页码 `n / N`；元数据有 `copyright` 时印在第一页底部。
-- 谱面（音符、休止符、小节号、拍号、速度记号）全部是矢量路径，放大不失真。能复制出的文字**只有**标题区、凡例、
+- 谱面（音符、休止符、小节号、拍号、速度记号、反复记号、带方框排练记号）全部是矢量路径，放大不失真。能复制出的文字**只有**标题区、凡例、
   页眉、页码和版权行，字体为嵌入子集的 Noto Sans CJK JP。汉字、假名与拉丁字母之间不自动加空格，元数据里写的空格原样印出（例外：紧跟在全角标点“、。）」”等之后，或夹在假名/汉字与全角括号之间的半角空格，按日文排版规则不印也不复制）：
   pdftotext、pdf.js 复制时保留这些半角空格，所以复制出的署名与元数据一致；但全角空格（U+3000，包括标题区里分隔各项的全角空格）
   在 pdftotext、pdf.js 中复制成半角空格；PyMuPDF 保留 U+3000，但会丢掉汉字、假名旁边的半角空格。校验会分别按 ActualText（Poppler、MuPDF、Chrome 的 PDFium 等使用）
   和 ToUnicode（pdf.js、Preview 等使用）两种方式提取文字，与预期比较（比较前做 NFC 规范化并去掉所有空白，
   所以只检查字符和顺序，不检查空格与换行）。
-- 每行一般最多 4 小节（多小节休止算一个）；最后一行很短时并入上一行，合并后的这一行最多 5 个。每行开头印小节号；弱起小节编号为 0。
+- 换行采用按乐句对齐的优化（优先按 4 小节乐句以及段落/反复边界分行；有第 0 弱起小节时可将第 0 与第 1–4 小节排在第一行，末行同样最多可排至 5 小节；多小节休止按 1 小节计，2 小节反复 `//` 按 2 小节计且不跨行拆开）。每行开头印小节号（弱起小节为 0）。
 
 ## 支持的输入
 
@@ -121,6 +124,8 @@ build/                         本地输出目录，已被 .gitignore 忽略
 - **速度变化**：MIDI 中的速度变化印在所在小节开头（♩ = 数值），MusicXML 中同步写入；变化发生在小节中途时会给出提示。
 - **力度（可选）**：设置 `dynamics.ghost_below` / `dynamics.accent_above` 后，手部的弱音印成括号符头（鬼音），
   强音加重音记号 `>`。默认不启用。
+- **反复记号与横梁**：默认启用 1 小节（`%`）和 2 小节（`//`）反复记号（`notation.repeats: simile`）；设为 `full` 时还可无损折叠按乐句对齐的 `|: ... :|` 反复与一、二房子（`1.` / `2.`），设为 `off` 则全部展开（可用 `--repeats` 覆盖）。此外可通过 `notation.beam_eighths: half-bar`（或 `--beam-eighths half-bar`）启用 4/4 半小节 4 连 8 分音符横梁。
+- **段落（可选）**：在元数据顶层设置 `sections`（`源小节号: ASCII 标签`），可印出双纵线与带方框排练记号，并在段落起点重置反复/休止、优先换行。
 
 ## 已知限制
 
@@ -158,7 +163,7 @@ build/                         本地输出目录，已被 .gitignore 忽略
 
 ## 分步脚本
 
-日常使用 `build_score.py` 即可。排查问题时可以单独运行各步骤。转换和校验脚本都接受 `--drum-map`；`--track`、`--channel`
+日常使用 `build_score.py` 即可。排查问题时可以单独运行各步骤。转换和校验脚本都接受 `--drum-map`、`--repeats` 与 `--beam-eighths`；`--track`、`--channel`
 只有 `midi_to_musicxml.py`、`render_score.py`、`validate_score.py`、`build_score.py` 接受（`midi_to_musixtex.py` 只按元数据选轨）。
 `midi_to_musicxml.py`、`render_score.py`、`midi_to_musixtex.py` 只做转换，退出码为 0 或 2；`validate_score.py` 的退出码同上表，
 找不到输入文件时也返回 2。`retag_gm_channel10.py` 只接受 `source --out`，出错时直接报 Python 异常，不按上面的 0/1/2 区分。

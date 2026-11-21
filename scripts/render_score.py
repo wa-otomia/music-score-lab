@@ -286,13 +286,14 @@ def _systems_per_page(pdf_path: Path) -> list[int]:
                 for d in page.get_drawings()
                 if d['rect'].width > 400 and d['rect'].height < 1.5
             )
-            staves = 0
-            prev_y: float | None = None
+            groups: list[list[float]] = []
             for y in ys:
-                if prev_y is None or y - prev_y > 10.0:
-                    staves += 1
-                prev_y = y
-            counts.append(staves)
+                if not groups or y - groups[-1][-1] > 10.0:
+                    groups.append([y])
+                else:
+                    groups[-1].append(y)
+            # Require >=4 clustered lines so a wide volta roof rule is never counted as a staff.
+            counts.append(sum(1 for g in groups if len(g) >= 4))
     return counts
 
 
@@ -368,8 +369,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
                         help='print (--legend) or omit (--no-legend) the instrument legend; default follows the metadata legend, omitted if unset')
-    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
-                        help='simile repeat notation: simile (default) or off; overrides metadata')
+    parser.add_argument('--repeats', choices=['off', 'simile', 'full'], default=None,
+                        help='repeat notation: simile (default), full (with |: ... :| and voltas), or off; overrides metadata')
     parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
                         help='eighth-note beaming in 4/4: beat (default) or half-bar; overrides metadata')
     parser.add_argument('--keep-tex', type=Path, help='also save the generated MusiXTeX source (for debugging)')

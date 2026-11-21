@@ -19,7 +19,7 @@ from pathlib import Path
 
 from score_core import (R, STAFF_LETTERS, Bar, Hit, ScoreError, Transcription, VoiceItem, build_score,
                         note_type, voice_items, voice_tuplets, _rests)
-from score_structure import MeasureUnit, has_double_bar_before, plan_units
+from score_structure import MeasureUnit, plan_units
 
 DEFAULT_LINE_WIDTH = 104.0
 
@@ -84,6 +84,9 @@ PREAMBLE = r"""\input musixtex
 % Boxed rehearsal mark for section labels (bold, crisp 0.6pt border).
 \font\eighttt=cmtt8
 \def\rehearsal#1{\vbox{\hrule height.6pt\hbox{\vrule width.6pt\kern2.5pt\vbox{\kern2pt\hbox{\ninebf #1}\kern2pt}\kern2.5pt\vrule width.6pt}\hrule height.6pt}}
+% Volta brackets clear high cymbal stems/open marks; bold Nx count sits above closing :| when times > 2.
+\def\raisevolta{9\internote}
+\def\repeatcount#1#2{\llap{\raise#1\internote\hbox{\eightbf #2}\kern1pt}}
 % Simile repeat symbols: numbered 1-bar % and barline-centered 2-bar // (pure vector paths + numeral).
 \def\csimile#1{\hbox{\duevolte\raise9.8\internote\hbox to0pt{\hss\eightbf #1\hss}}}
 \def\similetwo{\kern-.5\lthick\lrlap{\hbox{%
@@ -289,21 +292,33 @@ def tempo_mark(bar: Bar) -> str:
     return r'\zcharnote{' + pitch + r'}{\metron{\qu}{' + f'{bar.tempo:g}' + '}}'
 
 
+def _hand_clearance_steps(bar: Bar, minimum: int = 14) -> int:
+    """Vertical pitch height (in internotes above bottom line 'e') clearing hand ink in ``bar``."""
+    hand_hits = [h for hits in bar.events.values() for h in hits.values() if h.inst.part == 'hand']
+    if not hand_hits:
+        return minimum
+    top = max((h.inst.staff for h in hand_hits), key=STAFF_LETTERS.index)
+    top_steps = STAFF_LETTERS.index(top) - STAFF_LETTERS.index('e')
+    pitch = max(minimum, top_steps + 8)
+    if any(h.accent for h in hand_hits) or voice_tuplets(bar, 'hand'):
+        pitch = max(pitch, top_steps + 10)
+    return pitch
+
+
 def rehearsal_mark(bar: Bar) -> str:
     """Boxed rehearsal label placed clear of hand stems/marks/accents and any tempo mark."""
     assert bar.section is not None
-    hand_hits = [h for hits in bar.events.values() for h in hits.values() if h.inst.part == 'hand']
-    if hand_hits:
-        top = max((h.inst.staff for h in hand_hits), key=STAFF_LETTERS.index)
-        top_steps = STAFF_LETTERS.index(top) - STAFF_LETTERS.index('e')
-        pitch = max(14, top_steps + 7)
-        if any(h.accent for h in hand_hits) or voice_tuplets(bar, 'hand'):
-            pitch = max(pitch, top_steps + 10)
-    else:
-        pitch = 14
+    pitch = _hand_clearance_steps(bar, minimum=14)
     if bar.tempo is not None and bar.index > 0:
         pitch = max(pitch, _tempo_pitch_steps(bar) + 8)
     return r'\zcharnote{' + str(pitch) + r'}{\rehearsal{' + escape_tex_ascii(bar.section) + '}}'
+
+
+def repeat_count_mark(unit: MeasureUnit) -> str:
+    """Bold ``Nx`` label placed above a closing ``:|`` repeat barline when ``times > 2``."""
+    assert unit.repeat_end is not None and unit.repeat_end > 2
+    pitch = _hand_clearance_steps(unit.last, minimum=15)
+    return r'\repeatcount{' + str(pitch) + '}{' + str(unit.repeat_end) + 'x}'
 
 
 def bar_is_empty(bar: Bar) -> bool:
@@ -499,8 +514,25 @@ def plan_systems(units: list[MeasureUnit], widths: list[float], *,
             if not last_bar.pickup and (last_bar.number - anchors[j - 1] + 1) % 4 == 0:
                 cost -= 12.0
 
-            if j < n and units[j].first.section is not None and not last_bar.pickup:
-                cost -= 28.0
+            # Reward breaking at section/repeat boundaries (never isolating pickup bar 0)
+            boundary_reward = 0.0
+            if j < n and not last_bar.pickup:
+                if units[j].first.section is not None:
+                    boundary_reward = max(boundary_reward, 28.0)
+                if units[j].repeat_start:
+                    boundary_reward = max(boundary_reward, 18.0)
+                if units[j - 1].volta_stop == 'discontinue':
+                    boundary_reward = max(boundary_reward, 20.0)
+                elif units[j - 1].repeat_end is not None and units[j - 1].volta_stop is None:
+                    boundary_reward = max(boundary_reward, 20.0)
+            cost -= boundary_reward
+
+            # Avoid splitting a volta bracket or splitting a short 1./2. volta pair across lines
+            if j < n:
+                if units[j - 1].volta_start is not None and units[j - 1].volta_stop is None:
+                    cost += 24.0
+                elif units[j - 1].volta_stop == 'stop' and units[j].volta_start == '2':
+                    cost += 18.0
 
             if i > 0 and units[i].kind in ('simile-1', 'simile-2'):
                 cost += 4.0
@@ -552,24 +584,40 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
                        repeat_counters=score.settings.repeat_counters,
                        no_simile_bars=no_simile_bars)
 
+    # Raise volta brackets slightly higher if any volta bar in the score has accents/tuplets/high cymbals.
+    volta_bars: list[Bar] = []
+    in_volta = False
+    for u in units:
+        if u.volta_start is not None:
+            in_volta = True
+        if in_volta:
+            volta_bars.extend(u.bars)
+        if u.volta_stop is not None:
+            in_volta = False
+    if volta_bars:
+        needed = max(_hand_clearance_steps(b, minimum=16) for b in volta_bars)
+        if needed > 17:
+            lines.insert(lines.index(r'\startpiece'), r'\def\raisevolta{' + str(needed - 7) + r'\internote}')
+
     # render every unit first, then plan systems from the estimated widths
     rendered: list[tuple[list[str], float]] = []
     for unit in units:
         bar = unit.first
+        rep_count = repeat_count_mark(unit) if (unit.repeat_end is not None and unit.repeat_end > 2) else ''
         if unit.kind == 'multi-rest':
             n = len(unit.bars)
             marks = ((rehearsal_mark(bar) if bar.section is not None else '')
                      + (tempo_mark(bar) if bar.tempo and bar.index else ''))
             body = [f'% bar {bar.number}-{unit.last.number}',
                     r'\vnotes12\elemskip' + marks + r'\en',
-                    r'\def\atnextbar{\znotes\centerHpause{' + str(n) + r'}\en}%',
+                    r'\def\atnextbar{\znotes\centerHpause{' + str(n) + '}' + rep_count + r'\en}%',
                     r'\global\advance\barno by ' + str(n - 1)]
             width = 13.0
         elif unit.kind == 'simile-1':
             glyph = r'\csimile{' + str(unit.counter) + '}' if unit.counter is not None else r'\hbox{\duevolte}'
             body = [f'% bar {bar.number} (simile)',
                     r'\vnotes7\elemskip\en',
-                    r'\def\atnextbar{\znotes\centerbar{' + glyph + r'}\en}%']
+                    r'\def\atnextbar{\znotes\centerbar{' + glyph + '}' + rep_count + r'\en}%']
             width = 7.0
         elif unit.kind == 'simile-2':
             body = [f'% bar {bar.number}-{unit.last.number} (simile-2)',
@@ -577,6 +625,8 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
                     r'\def\atnextbar{\znotes\similetwo\en}%',
                     r'\bar',
                     r'\vnotes7\elemskip\en']
+            if rep_count:
+                body.append(r'\def\atnextbar{\znotes' + rep_count + r'\en}%')
             width = 15.5
         else:
             body = [f'% bar {bar.number}' + (' (pickup)' if bar.pickup else '')]
@@ -584,7 +634,10 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
                 marks = ((rehearsal_mark(bar) if bar.section is not None else '')
                          + (tempo_mark(bar) if bar.tempo and bar.index else ''))
                 body.append(r'\vnotes7\elemskip' + marks + r'\en')
-                body.append(r'\def\atnextbar{\znotes\centerpause\en}')
+                if rep_count:
+                    body.append(r'\def\atnextbar{\znotes\centerpause' + rep_count + r'\en}%')
+                else:
+                    body.append(r'\def\atnextbar{\znotes\centerpause\en}')
                 width = 8.0
             elif bar.pickup and bar_is_empty(bar):
                 body += [spacing(R * 2) + rest_macro(it) + r'\en' for it in _rests(0, bar.length, bar)]
@@ -592,35 +645,77 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
             else:
                 groups, width = bar_groups(bar, beam_eighths=score.settings.beam_eighths)
                 body += groups
+                if rep_count:
+                    body.append(r'\def\atnextbar{\znotes' + rep_count + r'\en}%')
                 for t in getattr(bar, 'collisions', []):
                     note = (f'Bar {bar.number}, beat {t // R + 1}: the hand and foot noteheads are adjacent and both beamed, so they cannot be offset '
                             'and may overlap; adjust the position in note_map')
                     if note not in score.warnings:
                         score.warnings.append(note)
         meter = 3.0 if bar.show_meter and bar.index else 0.0  # a time-signature change takes room too
-        rendered.append((body, width + 1.5 + meter))          # + bar line and clearance
+        rep_w = (2.5 if unit.repeat_start else 0.0) + (2.5 if unit.repeat_end is not None else 0.0)
+        rendered.append((body, width + 1.5 + meter + rep_w))  # + bar line, clearance, and repeat barlines
 
     widths = [w for _body, w in rendered]
     systems = plan_systems(units, widths, line_width=line_width, max_bars_per_line=max_bars_per_line)
 
+    if units and units[0].repeat_start:
+        lines.append(r'\zleftrepeat')
+
     starts = {s_[0] for s_ in systems}
     for u, (body, _width) in enumerate(rendered):
         lines += body
+        unit = units[u]
         if u == len(rendered) - 1:
+            if unit.volta_stop == 'stop':
+                lines.append(r'\setendvoltabox')
+            elif unit.volta_stop == 'discontinue':
+                lines.append(r'\setendvolta')
             break
-        nxt = units[u + 1].first
-        dbl = has_double_bar_before(bars, nxt.index)
+        nxt_unit = units[u + 1]
+        nxt = nxt_unit.first
+        rep_end = unit.repeat_end is not None
+        rep_start = nxt_unit.repeat_start
+        dbl = nxt_unit.double_bar_before
+        if unit.volta_stop == 'stop':
+            lines.append(r'\setendvoltabox')
+        elif unit.volta_stop == 'discontinue':
+            lines.append(r'\setendvolta')
+        if nxt_unit.volta_start is not None:
+            lines.append(r'\Setvolta{' + nxt_unit.volta_start + r'}%')
         if nxt.show_meter:
             lines.append(r'\generalmeter{\meterfrac{' + str(nxt.beats) + '}{4}}')
         if u + 1 in starts:
-            if dbl:
+            if rep_end:
+                lines.append(r'\setrightrepeat')
+            elif dbl:
                 lines.append(r'\setdoublebar')
             lines.append(r'\alaligne')
+            if rep_start:
+                lines.append(r'\zleftrepeat')
         elif nxt.show_meter:
-            lines.append(r'\Changecontext' if dbl else r'\changecontext')
+            if rep_end:
+                lines.append(r'\setrightrepeat')
+                lines.append(r'\changecontext')
+            elif dbl:
+                lines.append(r'\Changecontext')
+            else:
+                lines.append(r'\changecontext')
+            if rep_start:
+                lines.append(r'\zleftrepeat')
         else:
-            lines.append(r'\doublebar' if dbl else r'\bar')
-    lines += [r'\setdoubleBAR\endpiece', r'\bye']
+            if rep_end and rep_start:
+                lines.append(r'\leftrightrepeat')
+            elif rep_end:
+                lines.append(r'\rightrepeat')
+            elif rep_start:
+                lines.append(r'\leftrepeat')
+            elif dbl:
+                lines.append(r'\doublebar')
+            else:
+                lines.append(r'\bar')
+    final_end = r'\setrightrepeat\endpiece' if (units and units[-1].repeat_end is not None) else r'\setdoubleBAR\endpiece'
+    lines += [final_end, r'\bye']
     system_units = [[units[u] for u in s_] for s_ in systems]
     return '\n'.join(lines) + '\n', system_units
 
@@ -680,8 +775,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('midi', type=Path)
     parser.add_argument('--metadata', type=Path, required=True)
     parser.add_argument('--drum-map', help='bundled map name (gm, fpc-default) or YAML path')
-    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
-                        help='simile repeat notation: simile (default) or off; overrides metadata')
+    parser.add_argument('--repeats', choices=['off', 'simile', 'full'], default=None,
+                        help='repeat notation: simile (default), full (with |: ... :| and voltas), or off; overrides metadata')
     parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
                         help='eighth-note beaming in 4/4: beat (default) or half-bar; overrides metadata')
     parser.add_argument('--out', type=Path, required=True)

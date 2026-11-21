@@ -153,7 +153,7 @@ Feet (bass drum, pedal hi-hat) get no ghost / accent marks.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `notation.repeats` | string | `simile` | Controls 1-bar (`%`) and 2-bar (`//`) simile repeat notation. `simile`: enabled (default); `off`: disabled (every non-empty bar is written out in full). An unquoted `off` is read by YAML as false and is treated as `off` all the same. The command-line `--repeats` takes precedence |
+| `notation.repeats` | string | `simile` | Controls repeat notation mode. `simile`: enables 1-bar (`%`) and 2-bar (`//`) simile repeats (default); `full`: adds phrase-aligned section repeats (`|: ... :|`) and 1st/2nd ending voltas (`1.`/`2.`) on top of `%`/`//`; `off`: disables all repeats and writes out every non-empty bar in full. An unquoted `off` is read by YAML as false and is treated as `off` all the same. The command-line `--repeats` takes precedence |
 | `notation.repeat_counters` | boolean | `true` | Whether to print repeat-run numbers (`2`, `3`, `4`, …) above each `%` when 2 or more 1-bar `%` bars occur in a row (3 or more identical bars consecutively). Must be a YAML boolean; a quoted string such as `"false"` is an error |
 | `notation.beam_eighths` | string | `beat` | Controls 8th-note beaming. `beat`: grouped per beat, never crossing a beat (default); `half-bar`: in non-pickup 4/4 bars, beams 4 consecutive plain straight 8th notes per half-bar (beats 1–2 and beats 3–4), decided independently for each voice. The command-line `--beam-eighths` takes precedence |
 
@@ -161,7 +161,7 @@ An isolated single `%` (2 identical bars in a row) is left unnumbered. A 2-bar `
 
 ```yaml
 notation:
-  repeats: simile        # or off (command-line --repeats takes precedence)
+  repeats: simile        # simile (default), full or off (command-line --repeats takes precedence)
   repeat_counters: true  # set to false to omit count numbers (2, 3, 4…) above consecutive % bars
   beam_eighths: beat     # beat (default) or half-bar (command-line --beam-eighths takes precedence)
 ```
@@ -170,9 +170,9 @@ notation:
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `sections` | mapping | none | Top-level `bar_number: rehearsal label` mapping. Each key must be an integer `>= 1` within the score's bar range (pickup bar 0 is not allowed); each value must be 1–24 printable ASCII characters after trimming (non-ASCII characters or empty strings are an error) |
+| `sections` | mapping | none | Top-level `bar_number: rehearsal label` mapping. Each key must be an integer `>= 1` within the score's bar range (pickup bar 0 is not allowed; regardless of `notation.repeats`, keys always refer to source unfolded bar numbers); each value must be 1–24 printable ASCII characters after trimming (non-ASCII characters or empty strings are an error) |
 
-Each section start gets a double barline before it (except at the start of the piece or immediately after a pickup bar) and a boxed rehearsal mark above the bar. A section boundary also splits multi-measure rests, resets 1-bar (`%`) and 2-bar (`//`) simile repeats, and encourages starting a new system on that bar. For details see "Sections and Rehearsal Marks" in [notation-conventions.en.md](notation-conventions.en.md).
+Each section start gets a double barline before it (except at the start of the piece, immediately after a pickup bar, or where a repeat barline `|:` / `:|` already stands) and a boxed rehearsal mark above the bar. A section boundary also splits multi-measure rests, resets 1-bar (`%`) and 2-bar (`//`) simile repeats, and encourages starting a new system on that bar. For details see "Sections and Rehearsal Marks" in [notation-conventions.en.md](notation-conventions.en.md).
 
 ```yaml
 sections:

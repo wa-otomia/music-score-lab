@@ -208,7 +208,7 @@ class Settings:
     channels: list | None = None    # 1-based MIDI channels
     subdivision: int = 4            # straight grid per quarter: 2 (8ths) or 4 (16ths)
     tuplets: str = 'auto'           # auto | off
-    repeats: str = 'simile'         # off | simile
+    repeats: str = 'simile'         # off | simile | full
     repeat_counters: bool = True    # print 2, 3, 4... above runs of >=2 consecutive % bars
     beam_eighths: str = 'beat'      # beat | half-bar
     sections: dict[int, str] = field(default_factory=dict)
@@ -284,8 +284,8 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
         raise ScoreError('Metadata notation must be a mapping (repeats / repeat_counters / beam_eighths)')
     repeats = cli.get('repeats') if cli.get('repeats') is not None else notation.get('repeats', 'simile')
     s.repeats = 'off' if repeats is False else str(repeats)  # YAML reads a bare `off` as false
-    if s.repeats not in ('off', 'simile'):
-        raise ScoreError('notation.repeats only supports off or simile')
+    if s.repeats not in ('off', 'simile', 'full'):
+        raise ScoreError('notation.repeats only supports off, simile or full')
     if 'repeat_counters' in notation:
         if not isinstance(notation['repeat_counters'], bool):
             raise ScoreError('Metadata notation.repeat_counters must be true or false (without quotes)')

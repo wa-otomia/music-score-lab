@@ -36,6 +36,8 @@ Common options:
 | `--channel N` | Uses only MIDI channel N (1–16, repeatable) |
 | `--no-pdf` | Generates and validates only the MusicXML; no TeX environment needed |
 | `--legend` / `--no-legend` | Prints / omits the instrument legend on the first page. If neither is given, the metadata `legend` applies; if the metadata does not set it either, no legend is printed |
+| `--repeats MODE` | Sets repeat notation mode (`off`, `simile`, `full`); overrides `notation.repeats` in metadata (default: `simile`) |
+| `--beam-eighths MODE` | Sets 8th-note beaming mode (`beat`, `half-bar`); overrides `notation.beam_eighths` in metadata (default: `beat`) |
 | `--work-dir DIR` | Keeps the PDF intermediate files (TeX source, uncomposited score pages) for troubleshooting |
 | `--xsd PATH` | Path to the MusicXML 4.0 `musicxml.xsd`; the environment variable `MUSICXML_XSD` also works. When given, an additional schema validation is run (requires lxml) |
 
@@ -74,6 +76,7 @@ docs/notation-conventions.md   The Japanese-style drum notation implemented by t
 templates/metadata.yaml        Metadata template for a new song
 scripts/build_score.py         Main entry point: MusicXML + PDF and validation in one command
 scripts/score_core.py          Shared notation model: track selection, mapping, quantization, bars, voices, rests, beams
+scripts/score_structure.py     Shared structural planning: multi-measure rests, repeats (% / // / |: :| / 1. 2.), section breaks
 scripts/midi_to_musicxml.py    Model → MusicXML
 scripts/midi_to_musixtex.py    Model → MusiXTeX source
 scripts/render_score.py        MusiXTeX → Ghostscript outlining → XeLaTeX composition → PDF
@@ -93,13 +96,13 @@ build/                         Local output directory, ignored by .gitignore
 - **Legend** (not printed by default): with `legend: true` in the metadata or `--legend` on the command line, the instruments actually used in the song are printed below the title block.
   Each entry is a notehead on a short staff, with its abbreviation and Japanese name underneath. `--no-legend` turns it off temporarily when the metadata enables it.
 - Continuation pages print `<song title>　<artist>　ドラム譜` at the top and the page number `n / N` at the bottom; if the metadata has `copyright`, it is printed at the bottom of the first page.
-- The score (notes, rests, bar numbers, time signatures, tempo marks) is entirely vector paths and stays sharp at any zoom. The **only** copyable text is the title block, the legend,
+- The score (notes, rests, bar numbers, time signatures, tempo marks, repeat marks, boxed rehearsal marks) is entirely vector paths and stays sharp at any zoom. The **only** copyable text is the title block, the legend,
   the running header, the page number and the copyright line, in an embedded subset of Noto Sans CJK JP. No space is inserted automatically between kanji, kana and Latin letters; spaces written in the metadata are printed as they are (exception: a half-width space right after full-width punctuation such as 、。）」, or between kana/kanji and a full-width parenthesis, is neither printed nor copied, following Japanese typesetting rules):
   pdftotext and pdf.js keep these half-width spaces when copying, so the copied credits match the metadata. A full-width space (U+3000, including the full-width spaces separating the items in the title block),
   however, is copied as a half-width space by pdftotext and pdf.js; PyMuPDF keeps U+3000 but drops half-width spaces next to kanji and kana. Validation extracts the text both via ActualText (used by Poppler, MuPDF, Chrome's PDFium, etc.)
   and via ToUnicode (used by pdf.js, Preview, etc.) and compares it with the expected text (after NFC normalization and removal of all whitespace,
   so only characters and their order are checked, not spaces or line breaks).
-- Each system has at most 4 bars in general (a multi-measure rest counts as one); if the last system is very short it is merged into the previous one, and the merged system has at most 5. Each system starts with a bar number; the pickup bar is numbered 0.
+- Line breaks use phrase-aligned optimization (preferring 4-bar phrases and section/repeat boundaries; when pickup bar 0 is present it stays with bars 1–4 on line 1, and the final line may also hold up to 5 bars; a multi-measure rest counts as 1 bar and a 2-bar simile `//` counts as 2 bars without splitting). Each system starts with its bar number (pickup is 0).
 
 ## Supported input
 
@@ -121,6 +124,8 @@ build/                         Local output directory, ignored by .gitignore
 - **Tempo changes**: tempo changes in the MIDI are printed at the start of the bar they fall in (♩ = value) and written to the MusicXML as well; a tempo change in the middle of a bar produces a note.
 - **Dynamics (optional)**: when `dynamics.ghost_below` / `dynamics.accent_above` are set, weak hand notes are printed with parenthesized noteheads (ghost notes)
   and strong ones get an accent mark `>`. Disabled by default.
+- **Repeat marks and beaming**: 1-bar (`%`) and 2-bar (`//`) simile repeats are enabled by default (`notation.repeats: simile`); `full` also losslessly folds phrase-aligned `|: ... :|` repeats and 1st/2nd endings (`1.`/`2.`), and `off` writes every bar in full (overridable with `--repeats`). Optional 4/4 half-bar 4-eighth beaming can be enabled via `notation.beam_eighths: half-bar` (or `--beam-eighths half-bar`).
+- **Sections (optional)**: the top-level `sections` mapping (`source bar number: ASCII label`) adds double barlines, boxed rehearsal marks, repeat/rest resets and section-aligned line breaks.
 
 ## Known limitations
 
@@ -158,7 +163,7 @@ included in 『不器用な男』; ドラム採譜・編曲：音宮, including 
 
 ## Step-by-step scripts
 
-For everyday use, `build_score.py` is enough. To investigate a problem you can run the steps individually. The conversion and validation scripts all accept `--drum-map`; `--track` and `--channel`
+For everyday use, `build_score.py` is enough. To investigate a problem you can run the steps individually. The conversion and validation scripts all accept `--drum-map`, `--repeats` and `--beam-eighths`; `--track` and `--channel`
 are accepted only by `midi_to_musicxml.py`, `render_score.py`, `validate_score.py` and `build_score.py` (`midi_to_musixtex.py` selects tracks from the metadata only).
 `midi_to_musicxml.py`, `render_score.py` and `midi_to_musixtex.py` only convert, with exit code 0 or 2; the exit codes of `validate_score.py` are as in the table above,
 and it also returns 2 when the input file is not found. `retag_gm_channel10.py` accepts only `source --out`; on error it raises a plain Python exception and does not distinguish 0/1/2 as above.

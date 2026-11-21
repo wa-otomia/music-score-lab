@@ -16,7 +16,7 @@ from pathlib import Path
 
 from score_core import (R, STAFF_LETTERS, Bar, Hit, ScoreError, Transcription, VoiceItem, build_score,
                         item_ratio, note_type, voice_items)
-from score_structure import has_double_bar_before, measure_repeat_events, multi_rest_lengths, plan_units
+from score_structure import measure_repeat_events, multi_rest_lengths, plan_units
 
 NOTEHEAD = {'normal': ('normal', None), 'x': ('x', None), 'circle-x': ('circle-x', None),
             'diamond': ('diamond', 'no'), 'triangle': ('triangle', None), 'plus': ('cross', None),
@@ -179,54 +179,80 @@ def convert(score: Transcription) -> tuple[ET.Element, int]:
                        repeat_counters=score.settings.repeat_counters)
     multi = {u.first.index: len(u.bars) for u in units if u.kind == 'multi-rest'}
     rep_events = measure_repeat_events(units)
-    for i, bar in enumerate(score.bars):
-        attrs = {'number': str(bar.number)}
-        if bar.pickup:
-            attrs['implicit'] = 'yes'
-        measure = sub(part, 'measure', **attrs)
-        if i == 0 or bar.show_meter or i in multi or i in rep_events:
-            attributes = sub(measure, 'attributes')
-            if i == 0:
-                sub(attributes, 'divisions', R)
-                key = sub(attributes, 'key')
-                sub(key, 'fifths', 0)
-            if i == 0 or bar.show_meter:
-                time = sub(attributes, 'time')
-                sub(time, 'beats', bar.beats)
-                sub(time, 'beat-type', bar.beat_type)
-            if i == 0:
-                sub(sub(attributes, 'clef'), 'sign', 'percussion')
-                sub(sub(attributes, 'staff-details'), 'staff-lines', '5')
-            for kind, count in rep_events.get(i, []):
-                ms = sub(attributes, 'measure-style')
-                if kind == 'stop':
-                    sub(ms, 'measure-repeat', type='stop')
-                else:
-                    sub(ms, 'measure-repeat', count, type='start', slashes=str(count))
-            if i in multi:
-                sub(sub(attributes, 'measure-style'), 'multiple-rest', multi[i])
-        if bar.section is not None:
-            direction = sub(measure, 'direction', placement='above')
-            sub(sub(direction, 'direction-type'), 'rehearsal', bar.section, enclosure='square')
-        if bar.tempo is not None:
-            direction = sub(measure, 'direction', placement='above')
-            metronome = sub(sub(direction, 'direction-type'), 'metronome')
-            sub(metronome, 'beat-unit', 'quarter')
-            sub(metronome, 'per-minute', f'{bar.tempo:g}')
-            sub(direction, 'sound', tempo=f'{bar.tempo:g}')
-        write_voice(measure, bar, 'hand', beam_eighths=score.settings.beam_eighths)
-        backup = sub(measure, 'backup')
-        sub(backup, 'duration', bar.length)
-        write_voice(measure, bar, 'foot', beam_eighths=score.settings.beam_eighths)
-        if i + 1 < len(score.bars) and has_double_bar_before(score.bars, i + 1):
-            barline = sub(measure, 'barline', location='right')
-            sub(barline, 'bar-style', 'light-light')
-    if score.bars:
-        last = part.findall('measure')[-1]
-        barline = sub(last, 'barline', location='right')
-        sub(barline, 'bar-style', 'light-heavy')
+    engraved_notes = 0
+    measure_idx = 0
+    active_volta: str | None = None
+    for u_idx, unit in enumerate(units):
+        last_unit = u_idx == len(units) - 1
+        next_double = (u_idx + 1 < len(units) and units[u_idx + 1].double_bar_before)
+        for offset, bar in enumerate(unit.bars):
+            is_first = offset == 0
+            is_last = offset == len(unit.bars) - 1
+            attrs = {'number': str(unit.printed_start + offset)}
+            if bar.pickup:
+                attrs['implicit'] = 'yes'
+            measure = sub(part, 'measure', **attrs)
+            if measure_idx == 0 or bar.show_meter or bar.index in multi or bar.index in rep_events:
+                attributes = sub(measure, 'attributes')
+                if measure_idx == 0:
+                    sub(attributes, 'divisions', R)
+                    key = sub(attributes, 'key')
+                    sub(key, 'fifths', 0)
+                if measure_idx == 0 or bar.show_meter:
+                    time = sub(attributes, 'time')
+                    sub(time, 'beats', bar.beats)
+                    sub(time, 'beat-type', bar.beat_type)
+                if measure_idx == 0:
+                    sub(sub(attributes, 'clef'), 'sign', 'percussion')
+                    sub(sub(attributes, 'staff-details'), 'staff-lines', '5')
+                for kind, count in rep_events.get(bar.index, []):
+                    ms = sub(attributes, 'measure-style')
+                    if kind == 'stop':
+                        sub(ms, 'measure-repeat', type='stop')
+                    else:
+                        sub(ms, 'measure-repeat', count, type='start', slashes=str(count))
+                if bar.index in multi:
+                    sub(sub(attributes, 'measure-style'), 'multiple-rest', multi[bar.index])
+            if is_first and (unit.repeat_start or unit.volta_start is not None):
+                left_bl = sub(measure, 'barline', location='left')
+                if unit.repeat_start:
+                    sub(left_bl, 'bar-style', 'heavy-light')
+                if unit.volta_start is not None:
+                    sub(left_bl, 'ending', f'{unit.volta_start}.', number=unit.volta_start, type='start')
+                    active_volta = unit.volta_start
+                if unit.repeat_start:
+                    sub(left_bl, 'repeat', direction='forward')
+            if bar.section is not None:
+                direction = sub(measure, 'direction', placement='above')
+                sub(sub(direction, 'direction-type'), 'rehearsal', bar.section, enclosure='square')
+            if bar.tempo is not None:
+                direction = sub(measure, 'direction', placement='above')
+                metronome = sub(sub(direction, 'direction-type'), 'metronome')
+                sub(metronome, 'beat-unit', 'quarter')
+                sub(metronome, 'per-minute', f'{bar.tempo:g}')
+                sub(direction, 'sound', tempo=f'{bar.tempo:g}')
+            write_voice(measure, bar, 'hand', beam_eighths=score.settings.beam_eighths)
+            backup = sub(measure, 'backup')
+            sub(backup, 'duration', bar.length)
+            write_voice(measure, bar, 'foot', beam_eighths=score.settings.beam_eighths)
+            engraved_notes += sum(len(hits) for hits in bar.events.values())
+            if is_last:
+                is_final = last_unit
+                if unit.repeat_end is not None or unit.volta_stop is not None or is_final or next_double:
+                    right_bl = sub(measure, 'barline', location='right')
+                    if unit.repeat_end is not None or is_final:
+                        sub(right_bl, 'bar-style', 'light-heavy')
+                    elif next_double:
+                        sub(right_bl, 'bar-style', 'light-light')
+                    if unit.volta_stop is not None:
+                        sub(right_bl, 'ending', number=active_volta, type=unit.volta_stop)
+                    if unit.repeat_end is not None:
+                        sub(right_bl, 'repeat', direction='backward', times=str(unit.repeat_end))
+                if unit.volta_stop is not None:
+                    active_volta = None
+            measure_idx += 1
     ET.indent(root, '  ')
-    return root, score.engraved_hits
+    return root, engraved_notes
 
 
 def write(score: Transcription, out: Path) -> int:
@@ -249,8 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--drum-map', help='bundled map name (gm, fpc-default) or YAML path')
     parser.add_argument('--track', action='append', help='use only tracks whose name contains this text (repeatable)')
     parser.add_argument('--channel', action='append', type=int, help='use only this MIDI channel, 1-16 (repeatable)')
-    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
-                        help='override notation.repeats in the metadata: simile (1- and 2-bar repeat signs) or off')
+    parser.add_argument('--repeats', choices=['off', 'simile', 'full'], default=None,
+                        help='override notation.repeats in the metadata: full (repeat signs + similes), simile, or off')
     parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
                         help='override notation.beam_eighths in the metadata: beat or half-bar (4/4 only)')
     parser.add_argument('--out', type=Path, required=True)
