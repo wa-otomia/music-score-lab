@@ -1,0 +1,92 @@
+# 乐器目录：鼓映射（configs/drum-maps/*.yaml）和元数据 note_map 引用这里的 ID。
+#
+# 字段：
+#   name     英文名（MusicXML 乐器名）
+#   name_ja  日文名（PDF 图例，可复制文字）
+#   abbr     图例缩写，1–4 个 ASCII 字符（谱面图例里印在音符下方）
+#   part     hand = 上声部（符干朝上）；foot = 下声部（符干朝下）
+#   staff    MusiXTeX 音高字母（高音谱号位置）：d 下加一间，e 第一线，f 第一间，g 第二线，
+#            h 第二间，i 第三线，j 第三间，k 第四线，l 第四间，m 第五线，n 上加一间，
+#            o 上加一线，p 上加二间，q 上加二线，r 上加三间
+#   head     normal 实心椭圆 | x 叉 | circle-x 圈叉 | diamond 空心菱形 | triangle 三角
+#            | plus 十字 | rhombus 实心菱形
+#   mark     open（音符上方小圆圈）| half-open | closed（+）；不写则无
+#
+# 位置以 PAS/Weinberg 鼓谱指南为基础，并保留本仓库原有的日式位置
+# （吊镲在上加一线、踩镲在上加一间、军鼓第三间、底鼓第一间）。
+# 辅助打击乐（拍手、牛铃、铃鼓、康加等）放在同一谱表上，用不同符头区分，
+# 谱面第一页会自动印出实际用到的乐器图例。
+
+# --- 脚（下声部）
+kick:            {name: Bass Drum,         name_ja: バスドラム,           abbr: BD,  part: foot, staff: f, head: normal}
+kick-2:          {name: Bass Drum 2,       name_ja: バスドラム2,          abbr: BD2, part: foot, staff: e, head: normal}
+hihat-pedal:     {name: Pedal Hi-Hat,      name_ja: ハイハット（ペダル）, abbr: HHp, part: foot, staff: d, head: x}
+hihat-foot-splash: {name: Hi-Hat Foot Splash, name_ja: ハイハット（フットスプラッシュ）, abbr: HHs, part: foot, staff: d, head: x, mark: open}
+
+# --- 军鼓
+snare:           {name: Snare Drum,        name_ja: スネア,               abbr: SD,  part: hand, staff: j, head: normal}
+side-stick:      {name: Side Stick,        name_ja: サイドスティック,     abbr: SS,  part: hand, staff: j, head: x}
+hand-clap:       {name: Hand Clap,         name_ja: ハンドクラップ,       abbr: CL,  part: hand, staff: j, head: triangle}
+
+# --- 嗵鼓（高 → 低）
+tom-high:        {name: High Tom,          name_ja: ハイタム,             abbr: T1,  part: hand, staff: m, head: normal}
+tom-high-mid:    {name: Hi-Mid Tom,        name_ja: ハイミッドタム,       abbr: T2,  part: hand, staff: l, head: normal}
+tom-low-mid:     {name: Low-Mid Tom,       name_ja: ローミッドタム,       abbr: T3,  part: hand, staff: k, head: normal}
+tom-low:         {name: Low Tom,           name_ja: ロータム,             abbr: T4,  part: hand, staff: i, head: normal}
+tom-floor-high:  {name: High Floor Tom,    name_ja: フロアタム,           abbr: FT,  part: hand, staff: h, head: normal}
+tom-floor-low:   {name: Low Floor Tom,     name_ja: ロー・フロアタム,     abbr: FT2, part: hand, staff: g, head: normal}
+
+# --- 踩镲（手）
+hihat-closed:    {name: Closed Hi-Hat,     name_ja: ハイハット（クローズ）, abbr: HH, part: hand, staff: n, head: x}
+hihat-open:      {name: Open Hi-Hat,       name_ja: ハイハット（オープン）, abbr: HHo, part: hand, staff: n, head: x, mark: open}
+hihat-half-open: {name: Half-Open Hi-Hat,  name_ja: ハイハット（ハーフオープン）, abbr: HHh, part: hand, staff: n, head: x, mark: half-open}
+
+# --- 镲片
+crash:           {name: Crash Cymbal,      name_ja: クラッシュ,           abbr: CC,  part: hand, staff: o, head: x}
+crash-2:         {name: Crash Cymbal 2,    name_ja: クラッシュ2,          abbr: CC2, part: hand, staff: q, head: x}
+splash:          {name: Splash Cymbal,     name_ja: スプラッシュ,         abbr: SP,  part: hand, staff: p, head: x}
+china:           {name: China Cymbal,      name_ja: チャイナ,               abbr: CH,  part: hand, staff: q, head: circle-x}
+ride:            {name: Ride Cymbal,       name_ja: ライド,                 abbr: RC,  part: hand, staff: m, head: x}
+ride-bell:       {name: Ride Bell,         name_ja: ライド（カップ）, abbr: RB, part: hand, staff: m, head: diamond}
+ride-2:          {name: Ride Cymbal 2,     name_ja: ライド2,                abbr: RC2, part: hand, staff: k, head: x}
+
+# --- 辅助打击乐（同一谱表，靠符头区分；图例必印）
+tambourine:      {name: Tambourine,        name_ja: タンバリン,           abbr: TB,  part: hand, staff: l, head: diamond}
+cowbell:         {name: Cowbell,           name_ja: カウベル,             abbr: CB,  part: hand, staff: l, head: triangle}
+vibraslap:       {name: Vibraslap,         name_ja: ビブラスラップ,       abbr: VS,  part: hand, staff: h, head: diamond}
+bongo-high:      {name: Hi Bongo,          name_ja: ハイボンゴ,           abbr: BGh, part: hand, staff: l, head: plus}
+bongo-low:       {name: Low Bongo,         name_ja: ローボンゴ,           abbr: BGl, part: hand, staff: k, head: plus}
+conga-high-mute: {name: Mute Hi Conga,     name_ja: ハイコンガ（ミュート）, abbr: CGm, part: hand, staff: k, head: rhombus, mark: closed}
+conga-high-open: {name: Open Hi Conga,     name_ja: ハイコンガ（オープン）, abbr: CGo, part: hand, staff: k, head: rhombus, mark: open}
+conga-low:       {name: Low Conga,         name_ja: ローコンガ,           abbr: CGl, part: hand, staff: i, head: rhombus}
+timbale-high:    {name: High Timbale,      name_ja: ハイティンバレス,     abbr: TIh, part: hand, staff: m, head: triangle}
+timbale-low:     {name: Low Timbale,       name_ja: ローティンバレス,     abbr: TIl, part: hand, staff: k, head: triangle}
+agogo-high:      {name: High Agogo,        name_ja: ハイアゴゴ,           abbr: AGh, part: hand, staff: o, head: triangle}
+agogo-low:       {name: Low Agogo,         name_ja: ローアゴゴ,           abbr: AGl, part: hand, staff: n, head: triangle}
+cabasa:          {name: Cabasa,            name_ja: カバサ,               abbr: CA,  part: hand, staff: i, head: x}
+maracas:         {name: Maracas,           name_ja: マラカス,             abbr: MA,  part: hand, staff: h, head: rhombus}
+shaker:          {name: Shaker,            name_ja: シェイカー,           abbr: SH,  part: hand, staff: g, head: rhombus}
+whistle-short:   {name: Short Whistle,     name_ja: ホイッスル（ショート）, abbr: WSs, part: hand, staff: p, head: diamond}
+whistle-long:    {name: Long Whistle,      name_ja: ホイッスル（ロング）, abbr: WSl, part: hand, staff: q, head: diamond}
+guiro-short:     {name: Short Guiro,       name_ja: ギロ（ショート）,     abbr: GUs, part: hand, staff: h, head: plus}
+guiro-long:      {name: Long Guiro,        name_ja: ギロ（ロング）,       abbr: GUl, part: hand, staff: g, head: plus}
+claves:          {name: Claves,            name_ja: クラベス,             abbr: CV,  part: hand, staff: j, head: rhombus}
+woodblock-high:  {name: Hi Wood Block,     name_ja: ハイウッドブロック,   abbr: WBh, part: hand, staff: n, head: plus}
+woodblock-low:   {name: Low Wood Block,    name_ja: ローウッドブロック,   abbr: WBl, part: hand, staff: m, head: plus}
+cuica-mute:      {name: Mute Cuica,        name_ja: クイーカ（ミュート）, abbr: CUm, part: hand, staff: o, head: diamond, mark: closed}
+cuica-open:      {name: Open Cuica,        name_ja: クイーカ（オープン）, abbr: CUo, part: hand, staff: o, head: diamond, mark: open}
+triangle-mute:   {name: Mute Triangle,     name_ja: トライアングル（ミュート）, abbr: TRm, part: hand, staff: q, head: triangle, mark: closed}
+triangle-open:   {name: Open Triangle,     name_ja: トライアングル（オープン）, abbr: TRo, part: hand, staff: q, head: triangle, mark: open}
+jingle-bell:     {name: Jingle Bell,       name_ja: ジングルベル,         abbr: JB,  part: hand, staff: n, head: diamond}
+bell-tree:       {name: Bell Tree,         name_ja: ベルツリー,           abbr: BT,  part: hand, staff: o, head: rhombus}
+castanets:       {name: Castanets,         name_ja: カスタネット,         abbr: CS,  part: hand, staff: m, head: rhombus}
+surdo-mute:      {name: Mute Surdo,        name_ja: スルド（ミュート）,   abbr: SUm, part: hand, staff: e, head: normal, mark: closed}
+surdo-open:      {name: Open Surdo,        name_ja: スルド（オープン）,   abbr: SUo, part: hand, staff: e, head: normal, mark: open}
+high-q:          {name: High Q,            name_ja: ハイQ,               abbr: HQ,  part: hand, staff: i, head: plus}
+slap:            {name: Slap,              name_ja: スラップ,             abbr: SL,  part: hand, staff: j, head: plus}
+scratch-push:    {name: Scratch Push,      name_ja: スクラッチ（プッシュ）, abbr: SCp, part: hand, staff: g, head: triangle}
+scratch-pull:    {name: Scratch Pull,      name_ja: スクラッチ（プル）,   abbr: SCl, part: hand, staff: g, head: diamond}
+sticks:          {name: Sticks,            name_ja: スティック,           abbr: ST,  part: hand, staff: p, head: plus}
+square-click:    {name: Square Click,      name_ja: スクエアクリック,     abbr: SQ,  part: hand, staff: o, head: plus}
+metronome-click: {name: Metronome Click,   name_ja: メトロノーム（クリック）, abbr: MC, part: hand, staff: q, head: plus}
+metronome-bell:  {name: Metronome Bell,    name_ja: メトロノーム（ベル）, abbr: MB,  part: hand, staff: r, head: plus}

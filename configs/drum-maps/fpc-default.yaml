@@ -1,0 +1,15 @@
+name: FL Studio FPC 默认布局
+description: >
+  FPC 的 Default 音符布局沿用 GM 打击乐编号（与经典 Akai MPC 的默认音符表一致），
+  所以直接继承 gm。FL Studio 不经「Prepare For MIDI Export」直接导出时，FPC 的音符在
+  MIDI 第 1 通道、轨道名形如「FPC 1」，转换器会自动选中。
+  Bank A 常见排列（左下为 pad 1）：37 サイドスティック、36 キック、42 クローズドHH、82 シェイカー、
+  40 スネア、38 スネア、46 オープンHH、44 ペダルHH、48/47/45/43 タム、49 クラッシュ、55 スプラッシュ、
+  51 ライド、53 ライドベル。
+  FPC 的每个 pad 可以换音色、改音符：如果某个 pad 放的不是 GM 名称对应的乐器
+  （例如在 40 号 pad 上放拍手），请在曲目元数据的 note_map 中改写，例如
+    note_map:
+      40: hand-clap
+  或者复制本文件，按自己的 FPC 套件写一份映射，在元数据 drum_map 中引用其路径。
+extends: gm
+notes: {}

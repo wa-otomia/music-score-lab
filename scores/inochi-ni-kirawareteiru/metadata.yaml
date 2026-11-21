@@ -1,3 +1,4 @@
+# 曲目元数据。字段说明见 docs/metadata.md。
 slug: inochi-ni-kirawareteiru
 title: 命に嫌われている。
 artist: カンザキイオリ
@@ -8,11 +9,14 @@ vocal: カンザキイオリ（セルフカバー）
 transcriber: 音宮
 arranger: 音宮
 note: 本譜には採譜者による再構成・創作を含みます。
+
+# 源 MIDI 是 FL Studio FPC 导出（第 1 通道，轨道名「FPC 1」），音符沿用 GM 编号。
+drum_map: fpc-default
 tempo_bpm: 200
-beats: 4
-beat_type: 4
-# The original MIDI has 4 beats before its first played note.
-# The score has an explicit 2/4 introductory measure, then 4/4.
+time_signature: 4/4
+# 源 MIDI 第一个音之前有 4 拍空白；谱面只保留 2 拍，印成 2/4 的弱起小节，之后回到 4/4。
 source_leading_beats: 4
 pickup_beats: 2
-quantize_divisions_per_beat: 4
+quantize:
+  subdivision: 4   # 16 分音符网格
+  tuplets: auto    # 自动识别三连音（本曲没有）

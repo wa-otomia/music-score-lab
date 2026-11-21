@@ -1,158 +1,339 @@
 #!/usr/bin/env python3
-"""Reproducible Japanese percussion PDF engraving.
+"""鼓 MIDI + 元数据 → 打印用 PDF。
 
-MusiXTeX draws the musical notation. XeLaTeX/xeCJK typesets Japanese credits,
-then Inkscape outlines *the text only* to vector paths before compositing it
-onto the score. Outlines avoid PDF.js/Preview CJK font-subsetting bugs without
-rasterizing the notes or distributing any font binaries.
+流水线（每一步都可复现，不提交任何字体文件）：
+
+1. ``score_core`` 读 MIDI、量化、切小节（与 MusicXML 输出共用同一模型）。
+2. XeLaTeX 先排一次标题区（曲名、署名、备注、图例），量出高度。
+3. MusiXTeX（``musixtex -d``：etex → musixflx → etex → dvipdfmx）排谱，第一页顶部按
+   标题区高度留白；图例的每个符头另排成小谱表并裁切。
+4. Ghostscript ``-dNoOutputFonts`` 把谱面上的所有字形（音符、休止符、小节号）转成矢量路径，
+   复制谱面时不会再出现乱码。
+5. XeLaTeX + pdfpages 把矢量谱页放进最终 PDF，并叠加**真正的文字**：标题区、图例文字、
+   续页页眉和页码。xdvipdfmx 嵌入 Noto Sans CJK JP 子集（CID 字体 + ToUnicode），
+   可以选中、复制、搜索。
+
+需要：MusiXTeX（texlive-music）、XeLaTeX + xeCJK + pdfpages、Ghostscript、本机安装的
+Noto Sans CJK JP（fonts-noto-cjk）。
 """
 from __future__ import annotations
 
 import argparse
-import re
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
-import fitz
+import pymupdf
 
-from score_core import build_score
-from midi_to_musixtex import convert
+from score_core import ScoreError, Transcription, build_score
+from midi_to_musixtex import convert, legend_entries, legend_tex
+from pdf_tounicode import fix_tounicode
 
+PAGE_W, PAGE_H = 595.276, 841.89          # A4 in PostScript points
+CONTENT_LEFT, CONTENT_WIDTH = 28.35, 538.6  # MusiXTeX: \hoffset-15.4mm, \hsize190mm
+NOTATION_TOP = 60.6                         # top of the first system on a page (\voffset-6mm)
+HEADER_TOP = 30.0                           # first-page title block starts here
+HEADER_GAP = 12.0                           # space between the title block and the first system
+TOOLS = ('musixtex', 'etex', 'musixflx', 'dvipdfmx', 'xelatex', 'gs')
 
 TEX_ESCAPES = {
-    '\\': r'\textbackslash{}', '&': r'\&', '%': r'\%', '$': r'\$',
-    '#': r'\#', '_': r'\_', '{': r'\{', '}': r'\}',
-    '~': r'\textasciitilde{}', '^': r'\textasciicircum{}',
+    '\\': r'\textbackslash{}', '&': r'\&', '%': r'\%', '$': r'\$', '#': r'\#', '_': r'\_',
+    '{': r'\{', '}': r'\}', '~': r'\textasciitilde{}', '^': r'\textasciicircum{}',
+}
+
+ROLE_LABELS = {
+    'lyricist': '作詞', 'composer': '作曲', 'vocal': '歌', 'arranger': 'ドラム編曲',
+    'transcriber': 'ドラム採譜', 'artist': 'アーティスト', 'album': 'アルバム', 'note': '備考',
 }
 
 
-def escape_tex(text: str) -> str:
-    return ''.join(TEX_ESCAPES.get(char, char) for char in str(text))
+def escape_tex(text: object) -> str:
+    return ''.join(TEX_ESCAPES.get(c, c) for c in str(text))
 
 
-def run(command: list[str], cwd: Path, *, max_log: int = 6000) -> None:
-    process = subprocess.run(command, cwd=cwd, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True, errors='replace')
+def run(command: list[str], cwd: Path, *, max_log: int = 4000) -> str:
+    try:
+        process = subprocess.run(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, text=True, errors='replace', timeout=600)
+    except FileNotFoundError:
+        raise RuntimeError(f'找不到命令 {command[0]}；请安装 README 中列出的依赖') from None
     if process.returncode != 0:
-        raise RuntimeError(f'{command[0]} exited {process.returncode}:\n{process.stdout[-max_log:]}')
+        raise RuntimeError(f'{" ".join(command)} 失败（退出码 {process.returncode}）：\n{process.stdout[-max_log:]}')
+    return process.stdout
 
 
-def latex_header(meta: dict, pickup_beats: int, font_family: str, *, continuation: bool) -> str:
-    title = escape_tex(meta.get('title', 'Untitled'))
-    album = escape_tex(meta.get('album', ''))
-    vocal = escape_tex(meta.get('vocal', meta.get('artist', '')))
-    artist = escape_tex(meta.get('artist', ''))
-    transcriber = escape_tex(meta.get('transcriber', ''))
-    note = escape_tex(meta.get('note', ''))
-    bpm = escape_tex(meta.get('tempo_bpm', 120))
-
-    def textblock(y: int, fontsize: float, content: str, *, bold: bool = False) -> str:
-        weight = r'\bfseries ' if bold else ''
-        # XeLaTeX: textpos positions objects in absolute top-left page coordinates.
-        return (r'\begin{textblock*}{595pt}(0pt,' + str(y) + 'pt)\n'
-                + r'\centering {\fontsize{' + str(fontsize) + r'}{' + str(fontsize + 3.0)
-                + r'}\selectfont ' + weight + content + r'}' + '\n'
-                + r'\end{textblock*}' + '\n')
-
-    if continuation:
-        blocks = textblock(13, 8.2, title + r'\quad ' + artist + r'\quad 採譜・アレンジ：' + transcriber)
-    else:
-        blocks = (textblock(17, 19.5, title, bold=True)
-                  + textblock(50, 9.0, '収録アルバム：『' + album + '』  ' + vocal)
-                  + textblock(65, 9.0, '作詞・作曲・歌唱：' + artist + r'\quad ドラム採譜・アレンジ：' + transcriber)
-                  + textblock(80, 8.6, '備考：' + note)
-                  + textblock(97, 8.3, 'BPM ' + bpm + r'\quad '
-                              + (str(pickup_beats) + '/4（冒頭のみ）→ 4/4' if pickup_beats else '4/4')
-                              + r'\quad 手：上声部／足：下声部'))
-    return (r'\documentclass[a4paper,10pt]{article}' + '\n'
-            + r'\usepackage{fontspec}' + '\n'
-            + r'\usepackage{xeCJK}' + '\n'
-            + r'\usepackage[absolute,overlay]{textpos}' + '\n'
-            + r'\setmainfont{' + escape_tex(font_family) + '}' + '\n'
-            + r'\setCJKmainfont{' + escape_tex(font_family) + '}' + '\n'
-            + r'\pagestyle{empty}' + '\n'
-            + r'\setlength{\parindent}{0pt}' + '\n'
-            + r'\textblockorigin{0pt}{0pt}' + '\n'
-            + r'\begin{document}' + '\n'
-            + r'\mbox{}' + '\n'
-            + blocks
-            + r'\end{document}' + '\n')
+def check_tools() -> None:
+    missing = [t for t in TOOLS if not shutil.which(t)]
+    if missing:
+        raise RuntimeError('缺少命令：' + '、'.join(missing) + '。Debian/Ubuntu 请安装 texlive-music texlive-xetex '
+                           'texlive-lang-cjk texlive-latex-recommended ghostscript fonts-noto-cjk')
 
 
-def make_outlined_header(work: Path, meta: dict, pickup_beats: int,
-                         font_family: str, *, continuation: bool) -> Path:
-    stem = 'continuation_header' if continuation else 'first_header'
-    source = work / f'{stem}.tex'
-    source.write_text(latex_header(meta, pickup_beats, font_family,
-                                   continuation=continuation), encoding='utf-8')
-    run(['xelatex', '-interaction=nonstopmode', '-halt-on-error',
-         '-output-directory', str(work), source.name], work)
-    outlined = work / f'{stem}_outlined.pdf'
-    run(['inkscape', str(work / (stem + '.pdf')), '--export-text-to-path',
-         '--export-filename=' + str(outlined)], work)
-    # A font-free vector header renders identically in PDF.js, Preview and Poppler.
-    with fitz.open(outlined) as verify:
-        if len(verify) != 1 or verify[0].get_fonts():
-            raise RuntimeError('Header must be a single vector-outlined page with no fonts')
-    return outlined
+# --------------------------------------------------------------------------- header text
+
+@dataclass
+class HeaderText:
+    title: str
+    lines: list[tuple[float, str]]   # (font size, plain text) below the title
+    running: str                     # continuation-page header
+    footer_note: str                 # first-page footer (copyright), may be empty
+
+    def plain_strings(self) -> list[str]:
+        """Every string that must be extractable from the PDF, for verification."""
+        out = [self.title] + [t for _, t in self.lines]
+        if self.footer_note:
+            out.append(self.footer_note)
+        return out
 
 
-def engrave_pdf(base_pdf: Path, final_pdf: Path, score, work: Path, font_family: str) -> int:
-    first = make_outlined_header(work, score.metadata, score.pickup_ticks // score.tpq,
-                                font_family, continuation=False)
-    rest = make_outlined_header(work, score.metadata, score.pickup_ticks // score.tpq,
-                               font_family, continuation=True)
-    with fitz.open(base_pdf) as doc, fitz.open(first) as first_doc, fitz.open(rest) as rest_doc:
-        for idx, page in enumerate(doc):
-            overlay = first_doc if idx == 0 else rest_doc
-            page.show_pdf_page(page.rect, overlay, 0, overlay=True)
-        meta = score.metadata
-        doc.set_metadata({
-            'title': str(meta.get('title', '')) + ' | ドラム譜',
-            'author': str(meta.get('artist', '')) + ' / ' + str(meta.get('transcriber', '')),
-            'subject': str(meta.get('album', '')) + ' | ' + str(meta.get('note', '')),
-            'creator': 'MusiXTeX / XeLaTeX + Inkscape vector outlines / PyMuPDF',
-            'keywords': 'MusicXML, drum score, Japanese, MIDI',
-        })
-        final_pdf.parent.mkdir(parents=True, exist_ok=True)
-        doc.save(final_pdf, garbage=4, deflate=True, deflate_images=True)
-        return len(doc)
+def merged_roles(meta: dict, roles: list[str], labels: dict[str, str]) -> str:
+    """'作詞・作曲：A　歌：B' — roles credited to the same person share one label."""
+    groups: list[tuple[list[str], str]] = []
+    for role in roles:
+        value = str(meta.get(role) or '').strip()
+        if not value:
+            continue
+        for names, existing in groups:
+            if existing == value:
+                names.append(labels[role])
+                break
+        else:
+            groups.append(([labels[role]], value))
+    def label(names: list[str]) -> str:
+        # 'ドラム採譜・ドラム編曲' -> 'ドラム採譜・編曲'
+        out = names[:1] + [n.removeprefix('ドラム') if names[0].startswith('ドラム') else n for n in names[1:]]
+        return '・'.join(out)
+    return '　'.join(label(names) + '：' + value for names, value in groups)
 
 
-def main():
-    parser = argparse.ArgumentParser()
+def meter_summary(score: Transcription) -> str:
+    meters: list[str] = []
+    for bar in score.bars:
+        if bar.show_meter or not meters:
+            text = f'{bar.beats}/{bar.beat_type}' + ('（弱起）' if bar.pickup else '')
+            if not meters or meters[-1] != text:
+                meters.append(text)
+    if len(meters) > 4:
+        meters = meters[:3] + ['…']
+    return ' → '.join(meters)
+
+
+def header_text(score: Transcription) -> HeaderText:
+    meta = score.metadata
+    labels = dict(ROLE_LABELS)
+    labels.update({k: str(v) for k, v in (meta.get('credits') or {}).items() if k in ROLE_LABELS})
+    title = str(meta.get('title') or 'Untitled')
+    lines: list[tuple[float, str]] = []
+    if meta.get('subtitle'):
+        lines.append((11.0, str(meta['subtitle'])))
+    artist_line = '　'.join(x for x in (
+        str(meta.get('artist') or ''),
+        f'『{meta["album"]}』' if meta.get('album') else '') if x)
+    if artist_line:
+        lines.append((10.5, artist_line))
+    song = merged_roles(meta, ['lyricist', 'composer', 'vocal'], labels)
+    if song:
+        lines.append((9.0, song))
+    drums = merged_roles(meta, ['transcriber', 'arranger'], labels)
+    if drums:
+        lines.append((9.0, drums))
+    if meta.get('note'):
+        lines.append((8.5, labels['note'] + '：' + str(meta['note'])))
+    lines.append((8.5, f'BPM {score.tempo_bpm:g}　拍子 {meter_summary(score)}　上声部（符尾上）＝手　下声部（符尾下）＝足'))
+    running = '　'.join(x for x in (title, str(meta.get('artist') or ''), 'ドラム譜') if x)
+    return HeaderText(title, lines, running, str(meta.get('copyright') or ''))
+
+
+def expected_page_text(score: Transcription, pages: int) -> list[list[str]]:
+    """The only text each page may contain, in content order (used by validate_score.py)."""
+    header = header_text(score)
+    first = [header.title] + [t for _, t in header.lines]
+    if score.metadata.get('legend', True):
+        first.append('凡例')
+        for _notes, inst in legend_entries(score):
+            first += [inst.abbr, inst.name_ja]
+    first.append(f'1 / {pages}')
+    if header.footer_note:
+        first.append(header.footer_note)
+    return [first] + [[header.running, f'{i} / {pages}'] for i in range(2, pages + 1)]
+
+
+def legend_cells(score: Transcription, legend_pdf: str | None) -> str:
+    if legend_pdf is None:
+        return ''
+    entries = legend_entries(score)
+    width = max(44.0, min(58.0, (CONTENT_WIDTH - 4) / max(1, len(entries)) - 3))
+    cells = []
+    for page, (_notes, inst) in enumerate(entries, start=1):
+        main, paren, rest = inst.name_ja.partition('（')
+        name = r'\FitLine{' + escape_tex(main) + '}' + (r'\\\FitLine{' + escape_tex(paren + rest) + '}' if paren else '')
+        cells.append(r'\LegendCell{' + f'{width:.1f}' + '}{' + str(page) + '}{' + escape_tex(inst.abbr) + '}{' + name + '}')
+    return (r'\par\vspace{5pt}{\fontsize{7.5}{9}\selectfont 凡例\par}\vspace{1pt}'
+            + r'\hspace{3bp}'.join(cells) + r'\par')
+
+
+def latex_preamble(score: Transcription, header: HeaderText) -> str:
+    meta = score.metadata
+    header_lines = ''.join('  {\\fontsize{%s}{%s}\\selectfont %s\\par}\n' % (size, size + 4, escape_tex(text))
+                           for size, text in header.lines)
+    author = ' / '.join(dict.fromkeys(str(meta[k]) for k in ('transcriber', 'arranger') if meta.get(k)))
+    subject = ' / '.join(str(meta[k]) for k in ('artist', 'album') if meta.get(k))
+    return rf"""\documentclass[10pt]{{article}}
+\usepackage[paperwidth={PAGE_W}bp,paperheight={PAGE_H}bp,margin=0pt]{{geometry}}
+\usepackage{{fontspec}}
+\usepackage{{xeCJK}}
+\usepackage{{graphicx}}
+\usepackage{{pdfpages}}
+\usepackage[unicode,hidelinks]{{hyperref}}
+\XeTeXgenerateactualtext=1
+\setmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}}]
+\setCJKmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}}]
+\hypersetup{{pdftitle={{{escape_tex(header.title)} ドラム譜}},pdfauthor={{{escape_tex(author)}}},
+  pdfsubject={{{escape_tex(subject)}}},pdfkeywords={{drum score, ドラム譜, MusicXML}},
+  pdfcreator={{music-score-lab (MusiXTeX + Ghostscript + XeLaTeX)}}}}
+\pagestyle{{empty}}
+\setlength{{\parindent}}{{0pt}}
+\setlength{{\unitlength}}{{1bp}}
+\newcommand\LegendCell[4]{{\parbox[t]{{#1bp}}{{\centering
+  \includegraphics[page=#2,height=26bp]{{legend-cells.pdf}}\\[-1pt]
+  {{\fontsize{{6.5}}{{7.5}}\selectfont #3\\#4}}}}}}
+\newsavebox\FitBox
+\newcommand\FitLine[1]{{\sbox\FitBox{{#1}}\ifdim\wd\FitBox>\linewidth\resizebox{{\linewidth}}{{!}}{{#1}}\else#1\fi}}
+\newsavebox\HeaderBox
+\newcommand\MakeHeader{{\sbox\HeaderBox{{\begin{{minipage}}[b]{{{CONTENT_WIDTH}bp}}\centering
+  {{\fontsize{{20}}{{25}}\selectfont\bfseries {escape_tex(header.title)}\par}}\vspace{{3pt}}
+{header_lines}  LEGEND
+\end{{minipage}}}}}}
+"""
+
+
+FONT = 'Noto Sans CJK JP'
+
+
+def header_source(score: Transcription, header: HeaderText, legend: bool) -> str:
+    return latex_preamble(score, header).replace('LEGEND', legend_cells(score, 'legend-cells.pdf' if legend else None))
+
+
+def measure_header(work: Path, score: Transcription, header: HeaderText, legend: bool) -> float:
+    source = header_source(score, header, legend) + r"""\begin{document}
+\MakeHeader
+\newwrite\out\immediate\openout\out=header-height.txt
+\immediate\write\out{\the\dimexpr\ht\HeaderBox+\dp\HeaderBox\relax}
+\immediate\closeout\out
+\mbox{}
+\end{document}
+"""
+    (work / 'header.tex').write_text(source, encoding='utf-8')
+    run(['xelatex', '-interaction=nonstopmode', '-halt-on-error', 'header.tex'], work)
+    text = (work / 'header-height.txt').read_text().strip()
+    return float(text.removesuffix('pt')) * 72 / 72.27  # TeX pt -> PDF bp
+
+
+def compose(work: Path, score: Transcription, header: HeaderText, legend: bool, pages: int, out: Path) -> None:
+    head_y = PAGE_H - HEADER_TOP
+    footer = rf'\put(0,22){{\makebox[{PAGE_W}bp]{{\fontsize{{8}}{{9}}\selectfont\thepage\ / {pages}}}}}'
+    first = (rf'\put({CONTENT_LEFT},{head_y:.2f}){{\raisebox{{-\height}}{{\usebox\HeaderBox}}}}' + footer
+             + (rf'\put(0,36){{\makebox[{PAGE_W}bp]{{\fontsize{{7}}{{8}}\selectfont {escape_tex(header.footer_note)}}}}}'
+                if header.footer_note else ''))
+    running = (rf'\put(0,{PAGE_H - 34:.2f}){{\makebox[{PAGE_W}bp]{{\fontsize{{8}}{{9}}\selectfont '
+               rf'{escape_tex(header.running)}}}}}' + footer)
+    body = rf"""\begin{{document}}
+\MakeHeader
+\includepdf[pages=1,picturecommand*={{{first}}}]{{notes.pdf}}
+"""
+    if pages > 1:
+        body += rf"\includepdf[pages=2-,picturecommand={{{running}}}]{{notes.pdf}}" + '\n'
+    body += r'\end{document}' + '\n'
+    (work / 'compose.tex').write_text(header_source(score, header, legend) + body, encoding='utf-8')
+    run(['xelatex', '-interaction=nonstopmode', '-halt-on-error', 'compose.tex'], work)
+    fix_tounicode(work / 'compose.pdf')
+    out.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(work / 'compose.pdf', out)
+
+
+def outline(src: Path, dst: Path, work: Path) -> None:
+    run(['gs', '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-sDEVICE=pdfwrite', '-dNoOutputFonts',
+         '-dAutoRotatePages=/None', f'-sOutputFile={dst}', str(src)], work)
+
+
+def musixtex(work: Path, name: str, source: str) -> Path:
+    (work / f'{name}.tex').write_text(source, encoding='ascii')
+    run(['musixtex', '-d', f'{name}.tex'], work)
+    pdf = work / f'{name}.pdf'
+    if not pdf.exists():
+        raise RuntimeError(f'MusiXTeX 没有生成 {pdf.name}；详见 {work / (name + ".log")}')
+    return pdf
+
+
+def crop_legend(src: Path, dst: Path) -> None:
+    """Crop every legend page to the same vertical band so the staves line up."""
+    with pymupdf.open(src) as doc:
+        boxes = []
+        for page in doc:
+            rects = [d['rect'] for d in page.get_drawings()]
+            boxes.append((min(r.x0 for r in rects), min(r.y0 for r in rects),
+                          max(r.x1 for r in rects), max(r.y1 for r in rects)))
+        top = min(b[1] for b in boxes) - 1
+        bottom = max(b[3] for b in boxes) + 1
+        for page, (x0, _y0, x1, _y1) in zip(doc, boxes):
+            page.set_cropbox(pymupdf.Rect(x0 - 1, top, x1 + 1, bottom))
+        doc.save(dst)
+
+
+def render(score: Transcription, out: Path, work: Path, *, keep_tex: Path | None = None) -> dict:
+    check_tools()
+    header = header_text(score)
+    legend = bool(score.metadata.get('legend', True))
+    if legend:
+        raw = musixtex(work, 'legend', legend_tex(score))
+        outline(raw, work / 'legend-outlined.pdf', work)
+        crop_legend(work / 'legend-outlined.pdf', work / 'legend-cells.pdf')
+    height = measure_header(work, score, header, legend)
+    space = max(0.0, HEADER_TOP + height + HEADER_GAP - NOTATION_TOP)
+    source = convert(score, header_space=space)
+    if keep_tex:
+        keep_tex.parent.mkdir(parents=True, exist_ok=True)
+        keep_tex.write_text(source, encoding='ascii')
+    engraved = musixtex(work, 'score', source)
+    outline(engraved, work / 'notes.pdf', work)
+    with pymupdf.open(work / 'notes.pdf') as doc:
+        pages = len(doc)
+    compose(work, score, header, legend, pages, out)
+    return {'pages': pages, 'header_height': height, 'header_strings': header.plain_strings()}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description='鼓 MIDI + 元数据 → PDF 鼓谱')
     parser.add_argument('midi', type=Path)
     parser.add_argument('--metadata', type=Path, required=True)
-    parser.add_argument('--drum-map', type=Path,
-                        default=Path(__file__).resolve().parents[1] / 'configs/japanese-drums.yaml')
+    parser.add_argument('--drum-map', help='内置映射名（gm、fpc-default）或 YAML 路径')
+    parser.add_argument('--track', action='append', help='只用名称包含该文字的轨道（可重复）')
+    parser.add_argument('--channel', action='append', type=int, help='只用该 MIDI 通道 1–16（可重复）')
     parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--font-family', default='Noto Sans CJK JP',
-                        help='Installed font family for Japanese credits; no font file is committed')
-    parser.add_argument('--keep-tex', type=Path, default=None,
-                        help='Optional path to retain the generated MusiXTeX source')
-    args = parser.parse_args()
-    for dependency in ('musixtex', 'xelatex', 'inkscape'):
-        if not shutil.which(dependency):
-            parser.error(f'{dependency} required; install MusiXTeX, XeLaTeX, Inkscape and Japanese fonts')
-    score = build_score(args.midi, args.metadata, args.drum_map)
-    source = convert(score)
-    if args.keep_tex:
-        args.keep_tex.parent.mkdir(parents=True, exist_ok=True)
-        args.keep_tex.write_text(source, encoding='ascii')
-    with tempfile.TemporaryDirectory(prefix='drum-score-') as temp:
-        work = Path(temp)
-        tex = work / 'score.tex'
-        tex.write_text(source, encoding='ascii')
-        run(['musixtex', 'score.tex'], work)
-        engraved = work / 'score.pdf'
-        if not engraved.exists():
-            raise RuntimeError('MusiXTeX did not create score.pdf')
-        pages = engrave_pdf(engraved, args.out, score, work, args.font_family)
-    print(f'{args.out}: {pages} A4 pages, {len(score.bars)} measures, first measure '
-          f'{score.pickup_ticks // score.tpq}/4 when present')
+    parser.add_argument('--keep-tex', type=Path, help='另存生成的 MusiXTeX 源码（调试用）')
+    parser.add_argument('--work-dir', type=Path, help='保留中间文件的目录（默认用临时目录并在结束后删除）')
+    args = parser.parse_args(argv)
+    try:
+        score = build_score(args.midi, args.metadata, args.drum_map,
+                            cli={'tracks': args.track, 'channels': args.channel})
+        if args.work_dir:
+            args.work_dir.mkdir(parents=True, exist_ok=True)
+            info = render(score, args.out, args.work_dir.resolve(), keep_tex=args.keep_tex)
+        else:
+            with tempfile.TemporaryDirectory(prefix='drum-score-') as temp:
+                info = render(score, args.out, Path(temp), keep_tex=args.keep_tex)
+    except (ScoreError, RuntimeError) as exc:
+        print(f'错误：{exc}', file=sys.stderr)
+        return 2
+    for warning in score.warnings:
+        print(f'提示：{warning}', file=sys.stderr)
+    print(f'{args.out}: A4 {info["pages"]} 页；{score.summary()}')
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

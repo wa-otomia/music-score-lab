@@ -1,0 +1,66 @@
+name: General MIDI / GS 打击乐
+description: >
+  GM Level 1 打击乐键位 35–81，加上 GS/GM2 扩展 27–34 与 82–87。
+  音符名称依据 General MIDI 规范；谱面位置与符头见 configs/instruments.yaml。
+notes:
+  27: high-q
+  28: slap
+  29: scratch-push
+  30: scratch-pull
+  31: sticks
+  32: square-click
+  33: metronome-click
+  34: metronome-bell
+  35: kick-2           # Acoustic Bass Drum；只用这一个底鼓时可在 note_map 中改成 kick
+  36: kick             # Bass Drum 1
+  37: side-stick
+  38: snare            # Acoustic Snare
+  39: hand-clap
+  40: snare            # Electric Snare（印成同一个军鼓；两者同时用时转换器会提示重叠）
+  41: tom-floor-low
+  42: hihat-closed
+  43: tom-floor-high
+  44: hihat-pedal
+  45: tom-low
+  46: hihat-open
+  47: tom-low-mid
+  48: tom-high-mid
+  49: crash
+  50: tom-high
+  51: ride
+  52: china
+  53: ride-bell
+  54: tambourine
+  55: splash
+  56: cowbell
+  57: crash-2
+  58: vibraslap
+  59: ride-2
+  60: bongo-high
+  61: bongo-low
+  62: conga-high-mute
+  63: conga-high-open
+  64: conga-low
+  65: timbale-high
+  66: timbale-low
+  67: agogo-high
+  68: agogo-low
+  69: cabasa
+  70: maracas
+  71: whistle-short
+  72: whistle-long
+  73: guiro-short
+  74: guiro-long
+  75: claves
+  76: woodblock-high
+  77: woodblock-low
+  78: cuica-mute
+  79: cuica-open
+  80: triangle-mute
+  81: triangle-open
+  82: shaker
+  83: jingle-bell
+  84: bell-tree
+  85: castanets
+  86: surdo-mute
+  87: surdo-open
