@@ -98,7 +98,10 @@ def make_instrument(ident: str, spec: dict, where: str, base: Instrument | None 
         if not values.get(req):
             raise ScoreError(f'{where}: 缺少必填字段 {req}')
     values.setdefault('name_ja', values['name'])
-    values.setdefault('abbr', str(values['name'])[:3])
+    if 'abbr' not in values:
+        words = re.findall(r'[A-Za-z0-9]+', str(values['name']))
+        values['abbr'] = (''.join(w[0].upper() for w in words)[:4] if len(words) > 1
+                          else (words[0][:3] if words else 'X'))
     values.setdefault('mark', None)
     if values['part'] not in ('hand', 'foot'):
         raise ScoreError(f'{where}: part 只能是 hand 或 foot')
@@ -236,6 +239,14 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     midi = meta.get('midi') or {}
     if not isinstance(midi, dict):
         raise ScoreError('元数据 midi 必须是映射（tracks / channels）')
+    for key, allowed in (('midi', {'tracks', 'channels'}), ('quantize', {'subdivision', 'tuplets', 'flam_window'}),
+                         ('dynamics', {'ghost_below', 'accent_above'}),
+                         ('credits', {'lyricist', 'composer', 'vocal', 'arranger', 'transcriber', 'artist', 'album', 'note'})):
+        value = meta.get(key)
+        if isinstance(value, dict) and set(value) - allowed:
+            raise ScoreError(f'元数据 {key} 含未知字段 {sorted(set(value) - allowed)}；允许 {", ".join(sorted(allowed))}')
+    if 'legend' in meta and not isinstance(meta['legend'], bool):
+        raise ScoreError('元数据 legend 只能写 true 或 false（不要加引号）')
     s.tracks = _as_list(cli.get('tracks') or midi.get('tracks'))
     channels = _as_list(cli.get('channels') or midi.get('channels'))
     if channels is not None:
@@ -346,7 +357,7 @@ def read_midi(path: Path, settings: Settings) -> MidiData:
     try:
         midi = mido.MidiFile(path)
     except (OSError, EOFError, ValueError, KeyError) as exc:
-        raise ScoreError(f'无法读取 MIDI 文件 {path}：{exc}') from None
+        raise ScoreError(f'无法读取 MIDI 文件 {path}：{exc or type(exc).__name__}（文件可能不完整或不是标准 MIDI）') from None
     if midi.type == 2:
         raise ScoreError('不支持 SMF type 2（多个独立序列）的 MIDI 文件')
     tpq = midi.ticks_per_beat
@@ -505,8 +516,10 @@ def build_score(midi_file: Path, metadata_file: Path | None = None, drum_map: st
     data = read_midi(Path(midi_file), settings)
     missing = sorted({h.note for h in data.hits} - set(dmap.notes))
     if missing:
-        raise ScoreError(f'鼓映射「{dmap.name}」中没有这些 MIDI 音符：{missing}。请在元数据 note_map 中指定，'
-                         '例如 note_map: {39: hand-clap}；可用乐器 ID 见 configs/instruments.yaml')
+        first = min((h for h in data.hits if h.note in missing), key=lambda h: h.tick)
+        where = f'第一次出现在源 MIDI 第 {first.tick / data.tpq + 1:g} 拍（四分音符计）'
+        raise ScoreError(f'鼓映射「{dmap.name}」中没有这些 MIDI 音符：{missing}（{where}）。请在元数据 note_map 中'
+                         f'指定它是什么乐器，例如 note_map: {{{missing[0]}: hand-clap}}；可用乐器 ID 见 configs/instruments.yaml')
     return transcribe(data, dmap, meta, settings)
 
 
@@ -591,13 +604,17 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
         err_s = max(place(c, s.subdivision, beat)[0] * (tol_s / flam_tol if g else 1) for c, _, g in items)
         err_t = max(place(c, triplet_div, beat)[0] * (tol_t / flam_tol if g else 1) for c, _, g in items)
         where = f'第 {beat + 1} 拍（从乐谱起点按四分音符计）的{"手" if part == "hand" else "脚"}声部'
+        # a tuplet must explain every stroke at least as well as a 64th-note grid would
+        # (positions like 3/16 beat lie only 1/48 beat from the sextuplet grid)
+        tuplet_wins = all(g or place(c, triplet_div, beat)[0] <= Fraction(1, 96)
+                          or place(c, triplet_div, beat)[0] <= place(c, 16, beat)[0] for c, _, g in items)
         if err_s <= tol_s:
             div = s.subdivision
-        elif s.tuplets == 'auto' and err_t <= tol_t:
+        elif s.tuplets == 'auto' and err_t <= tol_t and tuplet_wins:
             div = triplet_div
         else:
             unit = '16 分' if s.subdivision == 4 else '8 分'
-            if s.tuplets == 'off' and err_t <= tol_t:
+            if s.tuplets == 'off' and err_t <= tol_t and tuplet_wins:
                 reason = '这一拍是三连音，但元数据设置了 quantize.tuplets: off'
             else:
                 reason = (f'音符既不在 {unit}网格上，也不在三连音网格上（偏差 {float(min(err_s, err_t)):.3f} 拍）：'
@@ -638,9 +655,12 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
             if key in seen:
                 other = hits[seen[key]].inst
                 same = (other.head, other.mark) == (hit.inst.head, hit.inst.mark)
-                warnings.append(f'第 {bar.number} 小节：MIDI 音符 {seen[key]} 与 {note} 同时出现在谱表同一位置'
-                                + ('且符头相同，谱面上无法区分' if same else '，符头会重叠')
-                                + '；如需区分请在 note_map 中改位置')
+                text = (f'第 {bar.number} 小节第 {offset // R + 1} 拍：MIDI 音符 {seen[key]} 与 {note} 同时出现在谱表同一位置'
+                        + ('且符头相同，谱面上无法区分' if same else '，符头会重叠')
+                        + f'；如需区分，可在 note_map 中改位置，例如 {note}: {{as: {hit.inst.id.split("@")[0]}, staff: '
+                        + f'{STAFF_LETTERS[min(len(STAFF_LETTERS) - 1, STAFF_LETTERS.index(hit.inst.staff) + 2)]}}}')
+                if text not in warnings:
+                    warnings.append(text)
             else:
                 seen[key] = note
     for beat, div in triplet_beats.items():

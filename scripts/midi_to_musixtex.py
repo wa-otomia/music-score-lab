@@ -82,7 +82,7 @@ class VoiceWriter:
         return ''.join(parts)
 
     def chord(self, item: VoiceItem, spacing_note: bool) -> str:
-        heads = ordered(item.hits, self.part)
+        heads, shifted = self.layout(item)
         carrier = heads[-1]
         name, dots = note_type(item)
         out: list[str] = []
@@ -91,16 +91,33 @@ class VoiceWriter:
         for h in heads[:-1]:
             if dots:
                 out.append(r'\pt{' + h.inst.staff + '}')
-            out.append(SYMBOL[h.inst.head] + r'\@zq{' + h.inst.staff + '}')
+            # the far head of a second sits on the other side of the stem
+            routine = (r'\@rq' if self.up else r'\@lq') if h.note in shifted else r'\@zq'
+            out.append(SYMBOL[h.inst.head] + routine + '{' + h.inst.staff + '}')
         out.append(self.tuplet_label(item, heads))
         accent = ''
         if self.up and any(h.accent for h in heads):
             # one accent per chord, clear of the stem or beam (beam form must follow the beam start)
-            accent = r'\busf' + str(self.beam) if item.beams else r'\usf{' + shift(carrier.inst.staff, 9) + '}'
+            top = max((h.inst.staff for h in heads), key=STAFF_LETTERS.index)
+            accent = r'\busf' + str(self.beam) if item.beams else r'\usf{' + shift(top, 9) + '}'
         if dots:
             out.append(r'\pt{' + carrier.inst.staff + '}')
         out.append(self.carrier(item, carrier, name, accent, '' if spacing_note else r'\advancefalse'))
         return ''.join(out)
+
+    def layout(self, item: VoiceItem) -> tuple[list[Hit], set[int]]:
+        """Heads with the stem carrier last, and the notes whose head is moved to the other
+        side of the stem because they are a second away from a neighbour.  Walk from the
+        stem's base (bottom for up stems, top for down stems); a head a step from an
+        unshifted neighbour is shifted.  The carrier is the head at the stem's base."""
+        index = STAFF_LETTERS.index
+        walk = sorted(item.hits.values(), key=lambda h: (index(h.inst.staff), h.note), reverse=not self.up)
+        shifted: set[int] = set()
+        for prev, h in zip(walk, walk[1:]):
+            if abs(index(h.inst.staff) - index(prev.inst.staff)) == 1 and prev.note not in shifted:
+                shifted.add(h.note)
+        carrier = walk[0]
+        return [h for h in walk[1:]] + [carrier], shifted
 
     def ornaments(self, h: Hit) -> str:
         p = h.inst.staff
@@ -118,7 +135,8 @@ class VoiceWriter:
         number = item.tuplet
         if item.beams:
             return r'\def\txt{' + str(number) + '}' + (r'\butext' if self.up else r'\bltext') + str(self.beam)
-        p = heads[-1].inst.staff
+        pick = max if self.up else min
+        p = pick((h.inst.staff for h in heads), key=STAFF_LETTERS.index)
         target = shift(p, 10) if self.up else shift(p, -9)
         return r'\ccharnote{' + target + r'}{\eightit ' + str(number) + '}'
 
@@ -231,6 +249,7 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
             if it.is_rest and (it.tuplet or in_mixed) and not any(a <= it.start < b for a, b in silent):
                 timeline.setdefault(it.start, {})[f'{part}-rest'] = it
     times = sorted(timeline)
+    collisions: list[int] = []
     groups: list[str] = []
     width = 0.0
     for i, t in enumerate(times):
@@ -255,13 +274,28 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
             for p in ('foot', 'hand'):
                 if p in entry:
                     writers[p]._current = _run_start(voices[p], entry[p])
-            if 'foot' in entry:
-                body += writers['foot'].chord(entry['foot'], spacing_note='hand' not in entry)
-            if 'hand' in entry:
-                body += writers['hand'].chord(entry['hand'], spacing_note=True)
+            foot_tex = writers['foot'].chord(entry['foot'], spacing_note='hand' not in entry) if 'foot' in entry else ''
+            hand_tex = writers['hand'].chord(entry['hand'], spacing_note=True) if 'hand' in entry else ''
+            if foot_tex and hand_tex and voices_touch(entry['hand'], entry['foot']):
+                # hand and foot heads a second apart (or on one spot): move one voice aside
+                if not entry['hand'].beams:
+                    hand_tex = r'\roffset{1}{' + hand_tex + '}'
+                elif not entry['foot'].beams:
+                    foot_tex = r'\loffset{1}{' + foot_tex + '}'
+                else:
+                    collisions.append(t)
+            body += foot_tex + hand_tex
         groups.append(spacing(slot) + body + r'\en')
         width += 2 + math.log2(slot / (R / 4))
+    bar.collisions = collisions
     return groups, width
+
+
+def voices_touch(hand: VoiceItem, foot: VoiceItem) -> bool:
+    index = STAFF_LETTERS.index
+    low_hand = min(index(h.inst.staff) for h in hand.hits.values())
+    high_foot = max(index(h.inst.staff) for h in foot.hits.values())
+    return low_hand - high_foot <= 1
 
 
 def _run_start(items: list[VoiceItem], item: VoiceItem) -> int | None:
@@ -317,6 +351,11 @@ def convert(score: Transcription, *, header_space: float = 0.0, line_width: floa
         else:
             groups, width = bar_groups(bar)
             body += groups
+            for t in getattr(bar, 'collisions', []):
+                note = (f'第 {bar.number} 小节第 {t // R + 1} 拍：手脚两个声部的符头相邻且都带横梁，无法错开，'
+                        '可能重叠；可在 note_map 中调整位置')
+                if note not in score.warnings:
+                    score.warnings.append(note)
         if len(unit) > 1:
             body.append(r'\global\advance\barno by ' + str(len(unit) - 1))
         rendered.append((body, width + 1.5))  # + bar line and clearance
@@ -334,7 +373,8 @@ def convert(score: Transcription, *, header_space: float = 0.0, line_width: floa
         prev = sum(rendered[u][1] for u in systems[-2])
         if (last < line_width * 0.45 and prev + last <= line_width * 1.15
                 and len(systems[-2]) + len(systems[-1]) <= max_bars_per_line + 1):
-            systems[-2] += systems.pop()  # avoid a lonely, stretched last system
+            tail = systems.pop()  # avoid a lonely, stretched last system
+            systems[-1] += tail
 
     starts = {s_[0] for s_ in systems}
     for u, (body, _width) in enumerate(rendered):
@@ -382,7 +422,7 @@ def legend_tex(score: Transcription) -> str:
         up = inst.part == 'hand'
         mark = ''
         if inst.mark:
-            mark = r'\ccharnote{' + shift(inst.staff, 3 if up else -3) + '}{' + MARK_TEXT[inst.mark] + '}'
+            mark = r'\ccharnote{' + shift(inst.staff, 3 if up else 2) + '}{' + MARK_TEXT[inst.mark] + '}'
         head = SYMBOL[inst.head] + (r'\@qu{' if up else r'\@ql{') + inst.staff + '}'
         if i:
             lines.append(r'\vfill\eject')

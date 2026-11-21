@@ -59,8 +59,9 @@ def test_dots_precede_the_note(tmp_path):
 def test_dotted_chord_dots_every_head(tmp_path):
     tex = tex_for(tmp_path, [(0, SNARE), (0, HH), (0.75, SNARE), (2, KICK)])
     first = bar_lines(tex, 1)[0]
-    assert first.index(r'\pt{j}') < first.index(r'\@zq{j}')
-    assert first.index(r'\pt{n}') < first.index(r'\@qb0{n}')
+    # up-stem chords carry the stem on the lowest head; every head gets its own dot first
+    assert first.index(r'\pt{n}') < first.index(r'\@zq{n}')
+    assert first.index(r'\pt{j}') < first.index(r'\@qb0{j}')
 
 
 def test_measure_rest_uses_centerpause(tmp_path):

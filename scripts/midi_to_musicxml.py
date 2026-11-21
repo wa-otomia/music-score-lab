@@ -138,8 +138,7 @@ def convert(score: Transcription) -> tuple[ET.Element, int]:
     root = ET.Element('score-partwise', version='4.0')
     title = str(meta.get('title') or 'Untitled')
     sub(sub(root, 'work'), 'work-title', title)
-    if meta.get('subtitle'):
-        sub(root, 'movement-title', meta['subtitle'])
+    sub(root, 'movement-title', title)  # MuseScore 3 takes the page title from movement-title
     ident = sub(root, 'identification')
     for kind in ('composer', 'lyricist', 'arranger'):
         if meta.get(kind):
@@ -158,7 +157,8 @@ def convert(score: Transcription) -> tuple[ET.Element, int]:
     credit = sub(root, 'credit', page='1')
     sub(credit, 'credit-type', 'title')
     sub(credit, 'credit-words', title, justify='center', valign='top', font_size='20')
-    for kind, key, justify in (('subtitle', 'artist', 'center'), ('composer', 'composer', 'right'),
+    subtitle_key = 'subtitle' if meta.get('subtitle') else 'artist'
+    for kind, key, justify in (('subtitle', subtitle_key, 'center'), ('composer', 'composer', 'right'),
                                ('lyricist', 'lyricist', 'left'), ('arranger', 'transcriber', 'left')):
         if meta.get(key):
             c = sub(root, 'credit', page='1')

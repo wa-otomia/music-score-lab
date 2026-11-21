@@ -180,7 +180,7 @@ def legend_cells(score: Transcription, legend_pdf: str | None) -> str:
     cells = []
     for page, (_notes, inst) in enumerate(entries, start=1):
         main, paren, rest = inst.name_ja.partition('（')
-        name = r'\FitLine{' + escape_tex(main) + '}' + (r'\\\FitLine{' + escape_tex(paren + rest) + '}' if paren else '')
+        name = r'\FitLine{' + escape_tex(main) + '}' + (r'\par\FitLine{' + escape_tex(paren + rest) + '}' if paren else '')
         cells.append(r'\LegendCell{' + f'{width:.1f}' + '}{' + str(page) + '}{' + escape_tex(inst.abbr) + '}{' + name + '}')
     return (r'\par\vspace{5pt}{\fontsize{7.5}{9}\selectfont 凡例\par}\vspace{1pt}'
             + r'\hspace{3bp}'.join(cells) + r'\par')
@@ -200,6 +200,7 @@ def latex_preamble(score: Transcription, header: HeaderText) -> str:
 \usepackage{{pdfpages}}
 \usepackage[unicode,hidelinks]{{hyperref}}
 \XeTeXgenerateactualtext=1
+\xeCJKsetup{{CJKecglue={{}},CJKspace=true}}  % no automatic gap between kanji and Latin: copy text exactly as written
 \setmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}},Mapping=none,Ligatures={{NoCommon,NoRequired,NoContextual}}]
 \setCJKmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}},Mapping=none,Ligatures={{NoCommon,NoRequired,NoContextual}}]
 \hypersetup{{pdftitle={{{escape_tex(header.title)} ドラム譜}},pdfauthor={{{escape_tex(author)}}},
@@ -209,10 +210,11 @@ def latex_preamble(score: Transcription, header: HeaderText) -> str:
 \setlength{{\parindent}}{{0pt}}
 \setlength{{\unitlength}}{{1bp}}
 \newcommand\LegendCell[4]{{\parbox[t]{{#1bp}}{{\centering
-  \includegraphics[page=#2,height=26bp]{{legend-cells.pdf}}\\[-1pt]
-  {{\fontsize{{6.5}}{{7.5}}\selectfont #3\\#4}}}}}}
+  \includegraphics[page=#2,height=26bp]{{legend-cells.pdf}}\par\vspace{{1bp}}
+  {{\fontsize{{6.5}}{{8}}\selectfont #3\par #4\par}}}}}}
 \newsavebox\FitBox
-\newcommand\FitLine[1]{{\sbox\FitBox{{#1}}\ifdim\wd\FitBox>\linewidth\resizebox{{\linewidth}}{{!}}{{#1}}\else#1\fi}}
+\newcommand\FitLine[1]{{\sbox\FitBox{{#1}}\ifdim\wd\FitBox>\dimexpr\linewidth-3bp\relax
+  \resizebox{{\dimexpr\linewidth-3bp\relax}}{{!}}{{#1}}\else#1\fi}}
 \newcommand\FitBlock[1]{{\makebox[{CONTENT_WIDTH}bp]{{\sbox\FitBox{{#1}}\ifdim\wd\FitBox>{CONTENT_WIDTH}bp\resizebox{{{CONTENT_WIDTH}bp}}{{!}}{{#1}}\else#1\fi}}}}
 \newsavebox\HeaderBox
 \newcommand\MakeHeader{{\sbox\HeaderBox{{\begin{{minipage}}[b]{{{CONTENT_WIDTH}bp}}\centering
@@ -283,17 +285,20 @@ def musixtex(work: Path, name: str, source: str) -> Path:
 
 
 def crop_legend(src: Path, dst: Path) -> None:
-    """Crop every legend page to the same vertical band so the staves line up."""
+    """Crop every legend page to the same band measured from its top staff line, so the
+    staves line up across cells whatever sits above or below them."""
     with pymupdf.open(src) as doc:
         boxes = []
         for page in doc:
             rects = [d['rect'] for d in page.get_drawings()]
-            boxes.append((min(r.x0 for r in rects), min(r.y0 for r in rects),
-                          max(r.x1 for r in rects), max(r.y1 for r in rects)))
-        top = min(b[1] for b in boxes) - 1
-        bottom = max(b[3] for b in boxes) + 1
-        for page, (x0, _y0, x1, _y1) in zip(doc, boxes):
-            page.set_cropbox(pymupdf.Rect(x0 - 1, top, x1 + 1, bottom))
+            staff = [r for r in rects if r.width > 40 and r.height < 1.5]
+            top = min(r.y0 for r in staff) if staff else min(r.y0 for r in rects)
+            boxes.append((min(r.x0 for r in rects), max(r.x1 for r in rects), top,
+                          top - min(r.y0 for r in rects), max(r.y1 for r in rects) - top))
+        above = max(b[3] for b in boxes) + 1
+        below = max(b[4] for b in boxes) + 1
+        for page, (x0, x1, top, _a, _b) in zip(doc, boxes):
+            page.set_cropbox(pymupdf.Rect(x0 - 1, top - above, x1 + 1, top + below))
         doc.save(dst)
 
 

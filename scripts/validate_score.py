@@ -174,9 +174,18 @@ def default_xsd() -> Path | None:
     return Path(env) if env else None
 
 
+class SetupError(RuntimeError):
+    """The check itself cannot run (missing schema, missing file): exit code 2, not 1."""
+
+
 def check_xsd(xsd: Path | None) -> None:
     if xsd is not None and not xsd.is_file():
-        raise ValidationError(f'找不到 MusicXML XSD：{xsd}（检查 --xsd 或环境变量 MUSICXML_XSD）')
+        raise SetupError(f'找不到 MusicXML XSD：{xsd}（检查 --xsd 或环境变量 MUSICXML_XSD）')
+    if xsd is not None:
+        try:
+            import lxml  # noqa: F401
+        except ImportError:
+            raise SetupError('XSD 校验需要 lxml（pip install lxml 或 apt install python3-lxml）') from None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -197,16 +206,19 @@ def main(argv: list[str] | None = None) -> int:
         check_xsd(args.xsd)
         for target in (args.musicxml, args.pdf):
             if target is not None and not target.is_file():
-                raise ValidationError(f'找不到文件：{target}')
+                raise SetupError(f'找不到文件：{target}')
         score = build_score(args.midi, args.metadata, args.drum_map,
                             cli={'tracks': args.track, 'channels': args.channel})
         if args.musicxml:
             print(validate_musicxml(score, args.musicxml, args.xsd))
         if args.pdf:
             print(validate_pdf(score, args.pdf))
-    except (ScoreError, ValidationError) as exc:
+    except ValidationError as exc:
         print(f'校验失败：{exc}', file=sys.stderr)
         return 1
+    except (ScoreError, SetupError) as exc:
+        print(f'错误：{exc}', file=sys.stderr)
+        return 2
     return 0
 
 

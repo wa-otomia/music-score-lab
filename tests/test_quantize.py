@@ -39,10 +39,23 @@ def test_humanized_tpq480_lands_on_grid(tmp_path):
 
 
 def test_humanized_triplets_land_on_triplet_grid(tmp_path):
-    hits = [(0, RIDE), (1 / 3 + 0.03, RIDE), (2 / 3 - 0.03, RIDE), (1, RIDE)]
+    hits = [(0, RIDE), (1 / 3 + 0.015, RIDE), (2 / 3 - 0.015, RIDE), (1, RIDE)]
     score = build(tmp_path, hits, tpq=480, **FOUR_FOUR)
     assert sorted(score.bars[0].events) == [0, 16, 32, 48]
     assert score.bars[0].triplet_beats == {0: 6}
+
+
+def test_loosely_played_triplets_are_rejected_not_guessed(tmp_path):
+    # 1/3 + 0.03 is nearer a 64th-note position than the triplet grid: ambiguous, so refuse
+    hits = [(0, RIDE), (1 / 3 + 0.03, RIDE), (2 / 3 - 0.03, RIDE), (1, RIDE)]
+    with pytest.raises(ScoreError):
+        build(tmp_path, hits, tpq=480, **FOUR_FOUR)
+
+
+@pytest.mark.parametrize('offset', [3 / 16, 5 / 16, 11 / 16])
+def test_64th_offsets_are_not_sextuplets(tmp_path, offset):
+    with pytest.raises(ScoreError):
+        build(tmp_path, [(0, SNARE), (offset, SNARE)], **FOUR_FOUR)
 
 
 @pytest.mark.parametrize('tpq', [96, 480, 960])

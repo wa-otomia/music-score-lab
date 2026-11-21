@@ -1,5 +1,6 @@
 """Title-block text (render_score.header_text) as documented in docs/metadata.md; no TeX needed."""
 import pytest
+from score_core import ScoreError
 
 from conftest import KICK, build
 from render_score import escape_tex, expected_page_text, header_text, merged_roles, ROLE_LABELS
@@ -19,7 +20,7 @@ def test_merged_roles(meta, roles, line):
 
 def test_header_lines_and_credits(tmp_path):
     meta = {'title': 'T', 'subtitle': 'S', 'artist': 'A', 'album': 'X', 'lyricist': 'A', 'composer': 'A',
-            'vocal': 'V', 'transcriber': 'C', 'note': 'N', 'credits': {'vocal': 'ボーカル', 'title': 'ignored'},
+            'vocal': 'V', 'transcriber': 'C', 'note': 'N', 'credits': {'vocal': 'ボーカル'},
             'copyright': '© 2026'}
     score = build(tmp_path, [(0, KICK)], meta, sigs=[(0, 4, 4)], tempo=150)
     h = header_text(score)
@@ -32,6 +33,11 @@ def test_header_lines_and_credits(tmp_path):
     assert pages[0][-2:] == ['1 / 2', '© 2026']
     assert '凡例' in pages[0]
     assert pages[1] == ['T　A　ドラム譜', '2 / 2']
+
+
+def test_unknown_credit_label_is_rejected(tmp_path):
+    with pytest.raises(ScoreError, match='credits'):
+        build(tmp_path, [(0, KICK)], {'credits': {'title': 'x'}}, sigs=[(0, 4, 4)])
 
 
 def test_untitled_and_no_legend(tmp_path):

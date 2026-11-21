@@ -194,7 +194,7 @@ def test_v25_validate_requires_a_target(tmp_path, capsys):
 
 
 def test_v25_missing_xsd_is_an_error(tmp_path):
-    with pytest.raises(ValidationError, match='XSD'):
+    with pytest.raises(validate_score.SetupError, match='XSD'):
         validate_score.check_xsd(tmp_path / 'nope.xsd')
 
 
@@ -223,7 +223,7 @@ def test_v28_failed_build_keeps_previous_outputs(tmp_path):
     (out / 'score.musicxml').write_text('previous', encoding='utf-8')
     code = build_score.main([str(midi), '--metadata', str(meta), '--out-dir', str(out), '--no-pdf',
                              '--xsd', str(tmp_path / 'missing.xsd')])
-    assert code == 1  # validation setup error
+    assert code == 2  # setup error, not a validation mismatch
     assert (out / 'score.musicxml').read_text(encoding='utf-8') == 'previous'
     assert not list(out.glob('.score.*'))
 
@@ -235,6 +235,7 @@ def test_v29_credits_use_the_right_fields(tmp_path):
     root, _ = midi_to_musicxml.convert(score)
     credits = {c.findtext('credit-type'): c.findtext('credit-words') for c in root.findall('credit')}
     assert credits['composer'] == 'Comp' and credits['subtitle'] == 'Band' and credits['arranger'] == 'Tr'
+    assert root.findtext('movement-title') == 'Test'  # what MuseScore 3 shows as the title
 
 
 # --- V3/V4/V13/V27: header text through the real PDF pipeline ----------------------------------
@@ -260,3 +261,44 @@ def test_v13_v27_unprintable_or_ambiguous_text_fails_clearly(tmp_path, title, me
     (tmp_path / 'work').mkdir()
     with pytest.raises(RuntimeError, match=message):
         render_score.render(score, tmp_path / 'score.pdf', tmp_path / 'work')
+
+
+# --- final verification: seconds, merged last system, CJK spacing -------------------------------
+
+def test_second_in_a_chord_puts_one_head_across_the_stem(tmp_path):
+    tex = midi_to_musixtex.convert(build(tmp_path, [(0, 49), (0, HH), (1, KICK)], **FOUR))
+    assert r'\do@symbol\@rq{o}' in tex  # crash beside the hi-hat, on the other side of the stem
+
+
+def test_hand_and_foot_a_second_apart_are_offset(tmp_path):
+    tex = midi_to_musixtex.convert(build(tmp_path, [(0, KICK), (0, 41), (2, KICK)], **FOUR))
+    assert r'\roffset{1}{' in tex
+
+
+def test_short_piece_merges_lonely_last_system(tmp_path):
+    tex = midi_to_musixtex.convert(build(tmp_path, [(b * 4, KICK) for b in range(5)], **FOUR))
+    assert tex.count(r'\alaligne') <= 1
+
+
+def test_unknown_midi_subkey_is_rejected(tmp_path):
+    with pytest.raises(ScoreError, match='midi'):
+        build(tmp_path, [(0, KICK)], {'midi': {'track': ['x']}}, **FOUR)
+
+
+def test_unmapped_note_message_names_the_note(tmp_path):
+    with pytest.raises(ScoreError, match=r'note_map: \{90: '):
+        build(tmp_path, [(0, KICK), (1, 90)], **FOUR)
+
+
+@pdf_only
+def test_cjk_latin_text_copies_without_invented_spaces(tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which('pdftotext'):
+        pytest.skip('needs pdftotext')
+    score = build(tmp_path, [(0, KICK)], {'title': '夜行列車・2号 Live版 テスト'}, **FOUR)
+    (tmp_path / 'work').mkdir()
+    out = tmp_path / 'score.pdf'
+    render_score.render(score, out, tmp_path / 'work')
+    text = subprocess.run(['pdftotext', '-l', '1', str(out), '-'], capture_output=True, text=True).stdout
+    assert text.splitlines()[0] == '夜行列車・2号 Live版 テスト'
