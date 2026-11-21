@@ -84,9 +84,12 @@ PREAMBLE = r"""\input musixtex
 % Boxed rehearsal mark for section labels (bold, crisp 0.6pt border).
 \font\eighttt=cmtt8
 \def\rehearsal#1{\vbox{\hrule height.6pt\hbox{\vrule width.6pt\kern2.5pt\vbox{\kern2pt\hbox{\ninebf #1}\kern2pt}\kern2.5pt\vrule width.6pt}\hrule height.6pt}}
-% Volta brackets clear high cymbal stems/open marks; bold Nx count sits above closing :| when times > 2.
-\def\raisevolta{9\internote}
+% Volta brackets clear high cymbal stems/open marks and mid-system bar numbers; bold Nx sits above closing :| when times > 2.
+\def\raisevolta{10\internote}
 \def\repeatcount#1#2{\llap{\raise#1\internote\hbox{\eightbf #2}\kern1pt}}
+% Small italic bar number on every mid-system bar (aligned just across the opening barline).
+\font\barnumfont=cmti7 at 6pt
+\def\barnum#1#2{\zcharnote{#1}{\kern-\afterruleskip\kern-2.5pt\hbox{\barnumfont #2}}}
 % Simile repeat symbols: numbered 1-bar % and barline-centered 2-bar // (pure vector paths + numeral).
 \def\csimile#1{\hbox{\duevolte\raise9.8\internote\hbox to0pt{\hss\eightbf #1\hss}}}
 \def\similetwo{\kern-.5\lthick\lrlap{\hbox{%
@@ -283,7 +286,7 @@ class VoiceWriter:
 def _tempo_pitch_steps(bar: Bar) -> int:
     letters = [h.inst.staff for hits in bar.events.values() for h in hits.values() if h.inst.part == 'hand']
     top = max(letters, key=STAFF_LETTERS.index) if letters else 'm'
-    return min(ord('z'), max(ord('q'), ord(top) + 11)) - ord('e')
+    return min(ord('z'), max(ord('u'), ord(top) + 11)) - ord('e')
 
 
 def tempo_mark(bar: Bar) -> str:
@@ -305,19 +308,55 @@ def _hand_clearance_steps(bar: Bar, minimum: int = 14) -> int:
     return pitch
 
 
-def rehearsal_mark(bar: Bar) -> str:
-    """Boxed rehearsal label placed clear of hand stems/marks/accents and any tempo mark."""
+def rehearsal_mark(bar: Bar, *, min_pitch: int = 16) -> str:
+    """Boxed rehearsal label placed clear of hand stems/marks/accents, bar numbers, and any tempo mark."""
     assert bar.section is not None
-    pitch = _hand_clearance_steps(bar, minimum=14)
+    pitch = _hand_clearance_steps(bar, minimum=min_pitch)
     if bar.tempo is not None and bar.index > 0:
         pitch = max(pitch, _tempo_pitch_steps(bar) + 8)
     return r'\zcharnote{' + str(pitch) + r'}{\rehearsal{' + escape_tex_ascii(bar.section) + '}}'
 
 
+def bar_number_pitch(unit: MeasureUnit) -> int:
+    """Vertical pitch (in internotes above bottom line 'e') for a mid-system small bar number.
+
+    Matches the baseline of the boxed system-start bar number (13\\internote) and lifts
+    only when beat 1 has high ink inside the bar number's horizontal footprint.
+    """
+    pitch = 13
+    if unit.kind != 'bar':
+        return pitch
+    bar = unit.first
+    beat1 = [h for h in bar.events.get(0, {}).values() if h.inst.part == 'hand']
+    if not beat1:
+        return pitch
+    top0 = max(STAFF_LETTERS.index(h.inst.staff) - STAFF_LETTERS.index('e') for h in beat1)
+    pitch = max(pitch, top0 + 3)
+    if unit.printed_start >= 10:
+        for h in beat1:
+            steps = STAFF_LETTERS.index(h.inst.staff) - STAFF_LETTERS.index('e')
+            if h.inst.mark:
+                pitch = max(pitch, steps + 6)
+            if h.grace:
+                pitch = max(pitch, steps + 6)
+        if any(h.accent for h in beat1):
+            hand_items = voice_items(bar, 'hand')
+            if hand_items and not hand_items[0].is_rest and not hand_items[0].beams:
+                usf_y = top0 + 9
+                if usf_y - 2 <= pitch <= usf_y + 2:
+                    pitch = max(pitch, usf_y + 3)
+    return pitch
+
+
+def bar_number_mark(unit: MeasureUnit) -> str:
+    """Small italic bar number placed at the opening barline of a mid-system unit."""
+    return r'\barnum{' + str(bar_number_pitch(unit)) + '}{' + str(unit.printed_start) + '}'
+
+
 def repeat_count_mark(unit: MeasureUnit) -> str:
     """Bold ``Nx`` label placed above a closing ``:|`` repeat barline when ``times > 2``."""
     assert unit.repeat_end is not None and unit.repeat_end > 2
-    pitch = _hand_clearance_steps(unit.last, minimum=15)
+    pitch = _hand_clearance_steps(unit.last, minimum=16)
     return r'\repeatcount{' + str(pitch) + '}{' + str(unit.repeat_end) + 'x}'
 
 
@@ -325,7 +364,7 @@ def bar_is_empty(bar: Bar) -> bool:
     return not bar.events
 
 
-def bar_groups(bar: Bar, *, beam_eighths: str = 'beat') -> tuple[list[str], float]:
+def bar_groups(bar: Bar, *, beam_eighths: str = 'beat', rehearsal_min_pitch: int = 16) -> tuple[list[str], float]:
     """TeX note groups for one non-empty bar and its estimated width in elemskips."""
     voices = {part: voice_items(bar, part, beam_eighths=beam_eighths) for part in ('hand', 'foot')}
     writers = {part: VoiceWriter(part, bar) for part in voices}
@@ -368,7 +407,7 @@ def bar_groups(bar: Bar, *, beam_eighths: str = 'beat') -> tuple[list[str], floa
         entry = timeline[t]
         body = ''
         if i == 0 and bar.section is not None:
-            body += rehearsal_mark(bar)
+            body += rehearsal_mark(bar, min_pitch=rehearsal_min_pitch)
         if i == 0 and bar.tempo is not None and bar.index > 0:
             body += tempo_mark(bar)
         for part, pitch in (('hand', 'q'), ('foot', 'a')):
@@ -596,17 +635,20 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
             in_volta = False
     if volta_bars:
         needed = max(_hand_clearance_steps(b, minimum=16) for b in volta_bars)
-        if needed > 17:
-            lines.insert(lines.index(r'\startpiece'), r'\def\raisevolta{' + str(needed - 7) + r'\internote}')
+        volta_start_bn = max((bar_number_pitch(u) for u in units if u.volta_start is not None), default=13)
+        raise_v = max(10, needed - 7, volta_start_bn - 3)
+        if raise_v > 10:
+            lines.insert(lines.index(r'\startpiece'), r'\def\raisevolta{' + str(raise_v) + r'\internote}')
 
     # render every unit first, then plan systems from the estimated widths
     rendered: list[tuple[list[str], float]] = []
     for unit in units:
         bar = unit.first
+        reh_min = max(16, bar_number_pitch(unit) + 3)
         rep_count = repeat_count_mark(unit) if (unit.repeat_end is not None and unit.repeat_end > 2) else ''
         if unit.kind == 'multi-rest':
             n = len(unit.bars)
-            marks = ((rehearsal_mark(bar) if bar.section is not None else '')
+            marks = ((rehearsal_mark(bar, min_pitch=reh_min) if bar.section is not None else '')
                      + (tempo_mark(bar) if bar.tempo and bar.index else ''))
             body = [f'% bar {bar.number}-{unit.last.number}',
                     r'\vnotes12\elemskip' + marks + r'\en',
@@ -631,7 +673,7 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
         else:
             body = [f'% bar {bar.number}' + (' (pickup)' if bar.pickup else '')]
             if bar_is_empty(bar) and not bar.pickup:
-                marks = ((rehearsal_mark(bar) if bar.section is not None else '')
+                marks = ((rehearsal_mark(bar, min_pitch=reh_min) if bar.section is not None else '')
                          + (tempo_mark(bar) if bar.tempo and bar.index else ''))
                 body.append(r'\vnotes7\elemskip' + marks + r'\en')
                 if rep_count:
@@ -643,7 +685,8 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
                 body += [spacing(R * 2) + rest_macro(it) + r'\en' for it in _rests(0, bar.length, bar)]
                 width = 5.0
             else:
-                groups, width = bar_groups(bar, beam_eighths=score.settings.beam_eighths)
+                groups, width = bar_groups(bar, beam_eighths=score.settings.beam_eighths,
+                                           rehearsal_min_pitch=reh_min)
                 body += groups
                 if rep_count:
                     body.append(r'\def\atnextbar{\znotes' + rep_count + r'\en}%')
@@ -664,8 +707,13 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
 
     starts = {s_[0] for s_ in systems}
     for u, (body, _width) in enumerate(rendered):
-        lines += body
         unit = units[u]
+        if u not in starts:
+            lines.append(body[0])
+            lines.append(r'\znotes' + bar_number_mark(unit) + r'\en')
+            lines += body[1:]
+        else:
+            lines += body
         if u == len(rendered) - 1:
             if unit.volta_stop == 'stop':
                 lines.append(r'\setendvoltabox')

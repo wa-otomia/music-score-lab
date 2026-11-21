@@ -558,6 +558,48 @@ def test_musixtex_full_repeats_barlines_voltas_times_and_cli(tmp_path):
     assert r'\zleftrepeat' in tex_cli and r'\setrightrepeat' in tex_cli
 
 
+def test_musixtex_full_repeats_sequential_mid_system_bar_numbers(tmp_path):
+    p4 = _phrase(4, 0)
+    v1 = [_bar_v(10), _bar_v(11), _bar_v(12), _bar_v(13), _bar_v(10), _bar_v(11), _bar_v(12), _bar_v(14)]
+    shared6 = _phrase(6, 20)
+    v2 = shared6 + [_bar_v(30), _bar_v(31)] + shared6 + [_bar_v(32), _bar_v(33)]
+    score = build(tmp_path, _sequence(p4 * 3 + v1 + v2), cli={'repeats': 'full'}, **FOUR_FOUR)
+    tex, systems = midi_to_musixtex.convert_with_layout(score)
+    tex.encode('ascii')
+
+    # Every system-start unit has no \barnum; every mid-system unit emits \barnum{pitch}{printed_start}.
+    blocks = _bar_blocks(tex)
+    flat_units = [u for sys_u in systems for u in sys_u]
+    sys_start_ids = {id(sys_u[0]) for sys_u in systems}
+    assert len(blocks) == len(flat_units)
+    for unit, (_hdr, lines) in zip(flat_units, blocks):
+        bn_hits = re.findall(r'\\barnum\{(\d+)\}\{(\d+)\}', '\n'.join(lines))
+        if id(unit) in sys_start_ids:
+            assert bn_hits == [], f'system-start bar {unit.printed_start} must not emit \\barnum'
+        else:
+            assert len(bn_hits) == 1, f'mid-system bar {unit.printed_start} expected 1 \\barnum, got {bn_hits}'
+            assert int(bn_hits[0][1]) == unit.printed_start
+
+    # Real song in repeats='full' mode: sequential printed_start bar numbers and zero on simile-2 interior barlines.
+    song_full = score_core.build_score(SONG_MIDI, SONG_META, cli={'repeats': 'full'})
+    song_tex, song_sys = midi_to_musixtex.convert_with_layout(song_full)
+    song_blocks = _bar_blocks(song_tex)
+    song_units = [u for sys_u in song_sys for u in sys_u]
+    song_starts = {id(sys_u[0]) for sys_u in song_sys}
+    assert len(song_blocks) == len(song_units)
+    for unit, (_hdr, lines) in zip(song_units, song_blocks):
+        joined = '\n'.join(lines)
+        bn_hits = re.findall(r'\\barnum\{(\d+)\}\{(\d+)\}', joined)
+        if id(unit) in song_starts:
+            assert bn_hits == []
+        else:
+            assert len(bn_hits) == 1 and int(bn_hits[0][1]) == unit.printed_start
+        if unit.kind == 'simile-2':
+            # Interior \bar (where \similetwo sits) must have no \barnum after it.
+            after_mid_bar = joined.split(r'\bar', 1)[1]
+            assert r'\barnum' not in after_mid_bar
+
+
 @needs_pdf
 def test_pdf_full_repeats_synthetic_end_to_end(tmp_path):
     p4 = _phrase(4, 0)

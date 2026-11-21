@@ -406,9 +406,13 @@ def test_sections_structure_multirest_similes_and_double_bar(tmp_path):
     ]
     assert multi_rest_lengths(s_mr.bars) == {1: 2, 3: 3}
 
-    # Section resets simile-1 pattern and counter.
+    # Section resets simile-1 pattern and counter (counters off by default; opt-in via repeat_counters=True).
     s_s1 = build(tmp_path, _sequence([_bar_a] * 6), meta={'sections': {4: 'A'}}, **FOUR_FOUR)
     assert [(u.kind, u.first.number, u.counter) for u in plan_units(s_s1.bars)] == [
+        ('bar', 1, None), ('simile-1', 2, None), ('simile-1', 3, None),
+        ('bar', 4, None), ('simile-1', 5, None), ('simile-1', 6, None),
+    ]
+    assert [(u.kind, u.first.number, u.counter) for u in plan_units(s_s1.bars, repeat_counters=True)] == [
         ('bar', 1, None), ('simile-1', 2, 2), ('simile-1', 3, 3),
         ('bar', 4, None), ('simile-1', 5, 2), ('simile-1', 6, 3),
     ]

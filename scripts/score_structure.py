@@ -354,7 +354,7 @@ def _plan_segment(bars: list[Bar], *, enable_similes: bool, repeat_counters: boo
     return units
 
 
-def plan_units(bars: list[Bar], *, repeats: str = 'simile', repeat_counters: bool = True,
+def plan_units(bars: list[Bar], *, repeats: str = 'simile', repeat_counters: bool = False,
                no_simile_bars: set[int] | frozenset[int] = frozenset()) -> list[MeasureUnit]:
     """Group bars into multi-bar rests, 1-bar/2-bar simile repeats, and (when ``repeats='full'``)
     folded ``|: ... :|`` repeat blocks and 1st/2nd ending voltas.

@@ -152,7 +152,7 @@ def _count_staves_per_page(pdf_path: Path) -> list[int]:
 def test_settings_notation_defaults():
     s = parse_settings({})
     assert s.repeats == 'simile'
-    assert s.repeat_counters is True
+    assert s.repeat_counters is False
 
 
 def test_settings_notation_repeats_modes():
@@ -237,6 +237,16 @@ def test_plan_units_simile_1_isolated_counted_and_suppressed(tmp_path):
     assert u2[1].first is two.bars[1] and u2[1].last is two.bars[1]
 
     five = build(tmp_path, _sequence([_bar_a] * 5), **FOUR_FOUR)
+    # Default repeat_counters is False: no counters on runs of >=2 %.
+    u5_default = plan_units(five.bars)
+    assert [(u.kind, u.counter) for u in u5_default] == [
+        ('bar', None),
+        ('simile-1', None),
+        ('simile-1', None),
+        ('simile-1', None),
+        ('simile-1', None),
+    ]
+
     u5 = plan_units(five.bars, repeat_counters=True)
     assert [(u.kind, u.counter) for u in u5] == [
         ('bar', None),
@@ -330,7 +340,14 @@ def test_plan_units_simile_breaks_on_articulation_grace_mark_and_tuplet(tmp_path
 
 def test_plan_units_no_simile_bars_resets_pattern_and_counter(tmp_path):
     five = build(tmp_path, _sequence([_bar_a] * 5), **FOUR_FOUR)
-    units5 = plan_units(five.bars, no_simile_bars={2})
+    assert [(u.kind, u.first.index, u.counter) for u in plan_units(five.bars, no_simile_bars={2})] == [
+        ('bar', 0, None),
+        ('simile-1', 1, None),
+        ('bar', 2, None),
+        ('simile-1', 3, None),
+        ('simile-1', 4, None),
+    ]
+    units5 = plan_units(five.bars, repeat_counters=True, no_simile_bars={2})
     assert [(u.kind, u.first.index, u.counter) for u in units5] == [
         ('bar', 0, None),
         ('simile-1', 1, None),   # isolated after split -> unnumbered
@@ -340,7 +357,7 @@ def test_plan_units_no_simile_bars_resets_pattern_and_counter(tmp_path):
     ]
 
     six = build(tmp_path, _sequence([_bar_a] * 6), **FOUR_FOUR)
-    units6 = plan_units(six.bars, no_simile_bars={3})
+    units6 = plan_units(six.bars, repeat_counters=True, no_simile_bars={3})
     assert [(u.kind, u.first.index, u.counter) for u in units6] == [
         ('bar', 0, None),
         ('simile-1', 1, 2),
@@ -388,7 +405,12 @@ def test_plan_units_simile_2_detection_and_constraints(tmp_path):
 
     # A | A | A | A must use 1-bar similes, never 2-bar simile.
     s_aaaa = build(tmp_path, _sequence([_bar_a] * 4), **FOUR_FOUR)
-    u_aaaa = plan_units(s_aaaa.bars)
+    u_aaaa_default = plan_units(s_aaaa.bars)
+    assert all(u.kind != 'simile-2' for u in u_aaaa_default)
+    assert [(u.kind, u.counter) for u in u_aaaa_default] == [
+        ('bar', None), ('simile-1', None), ('simile-1', None), ('simile-1', None),
+    ]
+    u_aaaa = plan_units(s_aaaa.bars, repeat_counters=True)
     assert all(u.kind != 'simile-2' for u in u_aaaa)
     assert [(u.kind, u.counter) for u in u_aaaa] == [
         ('bar', None), ('simile-1', 2), ('simile-1', 3), ('simile-1', 4),
@@ -608,8 +630,8 @@ def test_musicxml_xsd_valid_with_similes_and_multirest(tmp_path):
 # --------------------------------------------------------------------------- 4. MusiXTeX + PDF integration
 
 def _has_counter_token(lines: list[str], number: int) -> bool:
-    """Match a printed repeat counter digit inside TeX braces or command argument (ignores \\vnotes widths)."""
-    non_spacing = [l for l in lines if not l.lstrip().startswith(r'\vnotes')]
+    """Match a printed repeat counter digit inside TeX braces or command argument (ignores \\vnotes and \\barnum)."""
+    non_spacing = [l for l in lines if not l.lstrip().startswith((r'\vnotes', r'\znotes\barnum'))]
     pat = re.compile(rf'(?:\{{|\s){number}(?:\}}|\\)')
     return any(pat.search(l) for l in non_spacing)
 
@@ -626,13 +648,18 @@ def test_musixtex_simile_1_duevolte_counters_and_no_simile_bars(tmp_path):
     assert any(r'\duevolte' in l for l in blocks_iso[1][1])
     assert not _has_counter_token(blocks_iso[1][1], 2)
 
-    # >=2 consecutive %: counters 2, 3, 4 emitted when repeat_counters=True and omitted when False.
+    # >=2 consecutive %: counters omitted by default (and when repeat_counters=False), emitted when True.
+    s_default = build(tmp_path, _sequence([_bar_a] * 4), **FOUR_FOUR)
     s_cnt = build(tmp_path, _sequence([_bar_a] * 4), meta={'notation': {'repeat_counters': True}}, **FOUR_FOUR)
     s_nocnt = build(tmp_path, _sequence([_bar_a] * 4), meta={'notation': {'repeat_counters': False}}, **FOUR_FOUR)
+    tex_def = midi_to_musixtex.convert(s_default)
     tex_cnt = midi_to_musixtex.convert(s_cnt)
     tex_nocnt = midi_to_musixtex.convert(s_nocnt)
+    tex_def.encode('ascii')
     tex_cnt.encode('ascii')
     tex_nocnt.encode('ascii')
+    assert tex_def == tex_nocnt
+    assert r'\csimile' not in _score_body(tex_def)
 
     assert r'\duevolte' in tex_cnt
     b_cnt = _bar_blocks(tex_cnt)
@@ -644,16 +671,19 @@ def test_musixtex_simile_1_duevolte_counters_and_no_simile_bars(tmp_path):
         assert 'simile' in b_nocnt[idx][0]
         assert any(r'\duevolte' in l for l in b_nocnt[idx][1])
         assert not _has_counter_token(b_nocnt[idx][1], num)
-    assert b_nocnt[1][1] == b_nocnt[2][1] == b_nocnt[3][1]
-    assert b_cnt[1][1] != b_cnt[2][1] != b_cnt[3][1]
+    body_only = lambda lines: [l for l in lines if r'\barnum' not in l]
+    assert body_only(b_nocnt[1][1]) == body_only(b_nocnt[2][1]) == body_only(b_nocnt[3][1])
+    assert body_only(b_cnt[1][1]) != body_only(b_cnt[2][1]) != body_only(b_cnt[3][1])
 
     # repeats='off' emits no similes in the score body.
     s_off = build(tmp_path, _sequence([_bar_a] * 4), meta={'notation': {'repeats': 'off'}}, **FOUR_FOUR)
     body_off = _score_body(midi_to_musixtex.convert(s_off))
     assert r'\duevolte' not in body_off and 'simile' not in body_off
 
-    # no_simile_bars forces full engraving and restarts counters.
-    s_five = build(tmp_path, _sequence([_bar_a] * 5), **FOUR_FOUR)
+    # no_simile_bars forces full engraving and restarts counters when repeat_counters=True (and keeps counters off by default).
+    s_five_def = build(tmp_path, _sequence([_bar_a] * 5), **FOUR_FOUR)
+    assert r'\csimile' not in _score_body(midi_to_musixtex.convert(s_five_def, no_simile_bars={2}))
+    s_five = build(tmp_path, _sequence([_bar_a] * 5), meta={'notation': {'repeat_counters': True}}, **FOUR_FOUR)
     tex_reset = midi_to_musixtex.convert(s_five, no_simile_bars={2})
     b_reset = _bar_blocks(tex_reset)
     assert len(b_reset) == 5

@@ -102,7 +102,7 @@ build/                         Local output directory, ignored by .gitignore
   however, is copied as a half-width space by pdftotext and pdf.js; PyMuPDF keeps U+3000 but drops half-width spaces next to kanji and kana. Validation extracts the text both via ActualText (used by Poppler, MuPDF, Chrome's PDFium, etc.)
   and via ToUnicode (used by pdf.js, Preview, etc.) and compares it with the expected text (after NFC normalization and removal of all whitespace,
   so only characters and their order are checked, not spaces or line breaks).
-- Line breaks use phrase-aligned optimization (preferring 4-bar phrases and section/repeat boundaries; when pickup bar 0 is present it stays with bars 1–4 on line 1, and the final line may also hold up to 5 bars; a multi-measure rest counts as 1 bar and a 2-bar simile `//` counts as 2 bars without splitting). Each system starts with its bar number (pickup is 0).
+- Line breaks use phrase-aligned optimization (preferring 4-bar phrases and section/repeat boundaries; when pickup bar 0 is present it stays with bars 1–4 on line 1, and the final line may also hold up to 5 bars; a multi-measure rest counts as 1 bar and a 2-bar simile `//` counts as 2 bars without splitting). Each system starts with a boxed bar number and every mid-system bar starts with a small bar number (pickup is 0; omitted on the interior middle barline of a 2-bar `//` repeat).
 
 ## Supported input
 

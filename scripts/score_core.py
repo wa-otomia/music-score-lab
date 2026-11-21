@@ -209,7 +209,7 @@ class Settings:
     subdivision: int = 4            # straight grid per quarter: 2 (8ths) or 4 (16ths)
     tuplets: str = 'auto'           # auto | off
     repeats: str = 'simile'         # off | simile | full
-    repeat_counters: bool = True    # print 2, 3, 4... above runs of >=2 consecutive % bars
+    repeat_counters: bool = False   # print 2, 3, 4... above runs of >=2 consecutive % bars
     beam_eighths: str = 'beat'      # beat | half-bar
     sections: dict[int, str] = field(default_factory=dict)
     time_signature: tuple[int, int] | None = None

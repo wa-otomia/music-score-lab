@@ -154,16 +154,16 @@ Feet (bass drum, pedal hi-hat) get no ghost / accent marks.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `notation.repeats` | string | `simile` | Controls repeat notation mode. `simile`: enables 1-bar (`%`) and 2-bar (`//`) simile repeats (default); `full`: adds phrase-aligned section repeats (`|: ... :|`) and 1st/2nd ending voltas (`1.`/`2.`) on top of `%`/`//`; `off`: disables all repeats and writes out every non-empty bar in full. An unquoted `off` is read by YAML as false and is treated as `off` all the same. The command-line `--repeats` takes precedence |
-| `notation.repeat_counters` | boolean | `true` | Whether to print repeat-run numbers (`2`, `3`, `4`, …) above each `%` when 2 or more 1-bar `%` bars occur in a row (3 or more identical bars consecutively). Must be a YAML boolean; a quoted string such as `"false"` is an error |
+| `notation.repeat_counters` | boolean | `false` | Whether to print repeat-run numbers (`2`, `3`, `4`, …) above each `%` when 2 or more 1-bar `%` bars occur in a row (3 or more identical bars consecutively). Off by default (`false`); set to `true` to enable. Must be a YAML boolean; a quoted string such as `"true"` is an error |
 | `notation.beam_eighths` | string | `beat` | Controls 8th-note beaming. `beat`: grouped per beat, never crossing a beat (default); `half-bar`: in non-pickup 4/4 bars, beams 4 consecutive plain straight 8th notes per half-bar (beats 1–2 and beats 3–4), decided independently for each voice. The command-line `--beam-eighths` takes precedence |
 
-An isolated single `%` (2 identical bars in a row) is left unnumbered. A 2-bar `//` repeat always carries `2` as part of the symbol itself and is not affected by `repeat_counters`. For the matching rules, page-break handling and beaming rules, see "Repeat (Simile) Marks" and "Beams" in [notation-conventions.en.md](notation-conventions.en.md).
+By default, no `2`, `3`, `4`, … counters are printed above `%` bars; set `notation.repeat_counters: true` to enable them for runs of 2 or more consecutive `%` bars (an isolated single `%`, i.e. 2 identical bars in a row, is still left unnumbered). A 2-bar `//` repeat always carries `2` as part of the symbol itself and is not affected by `repeat_counters`. For the matching rules, page-break handling and beaming rules, see "Repeat (Simile) Marks" and "Beams" in [notation-conventions.en.md](notation-conventions.en.md).
 
 ```yaml
 notation:
-  repeats: simile        # simile (default), full or off (command-line --repeats takes precedence)
-  repeat_counters: true  # set to false to omit count numbers (2, 3, 4…) above consecutive % bars
-  beam_eighths: beat     # beat (default) or half-bar (command-line --beam-eighths takes precedence)
+  repeats: simile         # simile (default), full or off (command-line --repeats takes precedence)
+  repeat_counters: false  # false (default); set to true to print count numbers (2, 3, 4…) above consecutive % bars
+  beam_eighths: beat      # beat (default) or half-bar (command-line --beam-eighths takes precedence)
 ```
 
 ## Sections
