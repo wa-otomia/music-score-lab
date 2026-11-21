@@ -26,6 +26,7 @@ SYMBOL = {
 }
 MARK_TEXT = {'open': r'$\circ$', 'half-open': r'$\ominus$', 'closed': r'{\tenrm +}'}
 BEAM = {'hand': 0, 'foot': 1}
+CROSS_HEADS = ('x', 'circle-x')
 
 PREAMBLE = r"""\input musixtex
 \input musixper
@@ -36,6 +37,23 @@ PREAMBLE = r"""\input musixtex
 \overfullrule=0pt
 \def\tl@symbol{\def\q@u{\lower.5\internote\hbox{\musixchar116}}}
 \def\vrest#1#2{\zcharnote{#1}{\musixchar#2}}
+% Cross noteheads: the stem starts at the tip of the arm (upper right for up stems,
+% lower left for down stems) instead of at the centre of the X.
+\def\x@adj{.9\internote}
+\def\xupst@m{\global\advance\st@bot\x@adj\upst@m}
+\def\xdownst@m{\global\advance\st@top-\x@adj\downst@m}
+\def\xbeamst@m{\global\advance\st@bot\x@adj\global\advance\st@top-\x@adj\beamst@m}
+\def\xup@flag{\global\advance\st@bot\x@adj\up@flag}
+\def\xdown@flag{\global\advance\st@top-\x@adj\down@flag}
+\def\@xqu{\let\st@m\xupst@m\g@q}
+\def\@xql{\let\st@m\xdownst@m\g@q}
+\def\@xqb#1{\s@l@ctbeam#1\relax\let\st@m\xbeamst@m\g@q}
+\def\@xtqh#1{\s@l@ctbeam#1\relax\C@tb\t@bbu\qn@width\let\st@m\xbeamst@m\g@q}
+\def\@xtqb#1{\s@l@ctbeam#1\relax\C@tb\t@bbl\lthick\let\st@m\xbeamst@m\g@q}
+\def\@xcu{\n@vii\@xl\let\st@m\xup@flag\g@q}
+\def\@xccu{\n@vii\@xli\let\st@m\xup@flag\g@q}
+\def\@xcl{\n@vii\@xlv\let\st@m\xdown@flag\g@q}
+\def\@xccl{\n@vii46\let\st@m\xdown@flag\g@q}
 """
 
 
@@ -144,14 +162,15 @@ class VoiceWriter:
         """Beam commands, then ``accent`` and ``prefix`` (e.g. \\advancefalse), then the note."""
         sym = accent + prefix + SYMBOL[h.inst.head]
         p, n = h.inst.staff, str(self.beam)
+        at = r'\@x' if h.inst.head in CROSS_HEADS else '\\@'  # cross heads: stem from the arm tip
         u = 'u' if self.up else 'l'
         if not item.beams:
             routine = {'quarter': 'q', 'eighth': 'c', '16th': 'cc', 'half': 'h', 'whole': 'w'}[name]
             if routine in ('h', 'w'):
                 raise ScoreError('内部错误：鼓谱音符时值不应超过四分音符')
             if routine == 'q':
-                return sym + r'\@q' + u + '{' + p + '}'
-            return sym + r'\@' + routine + u + '{' + p + '}'
+                return sym + at + 'q' + u + '{' + p + '}'
+            return sym + at + routine + u + '{' + p + '}'
         levels = dict(item.beams)
         primary, secondary = levels[1], levels.get(2)
         out = ''
@@ -169,8 +188,8 @@ class VoiceWriter:
             elif secondary in ('end', 'backward hook'):
                 out += rf'\tbb{u}{n}'
         if primary == 'end':
-            return out + sym + (r'\@tqh' if self.up else r'\@tqb') + n + '{' + p + '}'
-        return out + sym + r'\@qb' + n + '{' + p + '}'
+            return out + sym + at + ('tqh' if self.up else 'tqb') + n + '{' + p + '}'
+        return out + sym + at + 'qb' + n + '{' + p + '}'
 
     def start_bar_beams(self, items: list[VoiceItem]) -> None:
         """Pick one reference pitch per beamed run: above the highest head for hands,

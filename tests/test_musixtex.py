@@ -39,8 +39,9 @@ def test_four_sixteenths_double_beam(tmp_path):
     tex = tex_for(tmp_path, [(x / 4, HH) for x in range(4)] + [(2, KICK)])
     notes = bar_lines(tex, 1)[:4]
     assert r'\ibbu0{n}0' in notes[0] and r'\roff' not in notes[0]
-    assert r'\@qb0{n}' in notes[1] and r'\@qb0{n}' in notes[2]
-    assert r'\@tqh0{n}' in notes[3]
+    # cross heads use the arm-tip stem routines (\@xqb), see test_cross_head_stems_start_at_arm_tip
+    assert r'\@xqb0{n}' in notes[1] and r'\@xqb0{n}' in notes[2]
+    assert r'\@xtqh0{n}' in notes[3]
 
 
 def test_foot_beams_use_beam_1_downwards(tmp_path):

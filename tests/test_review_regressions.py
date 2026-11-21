@@ -302,3 +302,16 @@ def test_cjk_latin_text_copies_without_invented_spaces(tmp_path):
     render_score.render(score, out, tmp_path / 'work')
     text = subprocess.run(['pdftotext', '-l', '1', str(out), '-'], capture_output=True, text=True).stdout
     assert text.splitlines()[0] == '夜行列車・2号 Live版 テスト'
+
+
+def test_cross_head_stems_start_at_arm_tip(tmp_path):
+    """User report: the stem of an x notehead went down to the centre of the X instead of
+    meeting the arm tip.  Cross heads (x, circle-x) use the \\@x… stem routines."""
+    hits = [(0, HH), (1, HH), (1.5, HH), (3.5, HH), (0, PEDAL), (2, 52), (4, SNARE)]
+    tex = midi_to_musixtex.convert(build(tmp_path, hits, **FOUR))
+    assert r'\do@symbol\@xqu{n}' in tex          # unbeamed quarter, stem up
+    assert r'\do@symbol\@xqb0{n}' in tex         # beamed
+    assert r'\do@symbol\@xcu{n}' in tex          # flagged 8th
+    assert r'\do@symbol\@xql{d}' in tex          # pedal hi-hat, stem down
+    assert r'\dc@symbol\@xqu{q}' in tex          # china (circle-x)
+    assert r'\q@symbol\@qu{j}' in tex            # normal heads keep the centre stem
