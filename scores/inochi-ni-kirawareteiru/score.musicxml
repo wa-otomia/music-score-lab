@@ -232,6 +232,11 @@
       </note>
     </measure>
     <measure number="2">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
@@ -338,6 +343,11 @@
       </note>
     </measure>
     <measure number="4">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <grace slash="yes" />
         <unpitched>
@@ -542,6 +552,11 @@
       </note>
     </measure>
     <measure number="6">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
@@ -648,6 +663,11 @@
       </note>
     </measure>
     <measure number="8">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -1149,6 +1169,11 @@
       </note>
     </measure>
     <measure number="11">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -1332,6 +1357,11 @@
       </note>
     </measure>
     <measure number="12">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -1711,6 +1741,11 @@
       </note>
     </measure>
     <measure number="14">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -1894,6 +1929,11 @@
       </note>
     </measure>
     <measure number="15">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -2821,6 +2861,11 @@
       </note>
     </measure>
     <measure number="27">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -3004,6 +3049,11 @@
       </note>
     </measure>
     <measure number="28">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -3383,6 +3433,11 @@
       </note>
     </measure>
     <measure number="30">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -3749,6 +3804,11 @@
       </note>
     </measure>
     <measure number="32">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -5421,6 +5481,11 @@
       </note>
     </measure>
     <measure number="43">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -5578,6 +5643,11 @@
       </note>
     </measure>
     <measure number="44">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -8008,6 +8078,11 @@
       </note>
     </measure>
     <measure number="59">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <rest />
         <duration>24</duration>
@@ -8221,6 +8296,11 @@
       </note>
     </measure>
     <measure number="60">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <rest />
         <duration>24</duration>
@@ -8811,6 +8891,11 @@
       </note>
     </measure>
     <measure number="63">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
@@ -9005,6 +9090,11 @@
       </note>
     </measure>
     <measure number="64">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
@@ -9546,6 +9636,11 @@
       </note>
     </measure>
     <measure number="67">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -9729,6 +9824,11 @@
       </note>
     </measure>
     <measure number="68">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -10108,6 +10208,11 @@
       </note>
     </measure>
     <measure number="70">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -10474,6 +10579,11 @@
       </note>
     </measure>
     <measure number="72">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -11013,6 +11123,11 @@
       </note>
     </measure>
     <measure number="75">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -11196,6 +11311,11 @@
       </note>
     </measure>
     <measure number="76">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -11575,6 +11695,11 @@
       </note>
     </measure>
     <measure number="78">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -11941,6 +12066,11 @@
       </note>
     </measure>
     <measure number="80">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -12320,6 +12450,11 @@
       </note>
     </measure>
     <measure number="82">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -12686,6 +12821,11 @@
       </note>
     </measure>
     <measure number="84">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -13065,6 +13205,11 @@
       </note>
     </measure>
     <measure number="86">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -13431,6 +13576,11 @@
       </note>
     </measure>
     <measure number="88">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -13970,6 +14120,11 @@
       </note>
     </measure>
     <measure number="91">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -14153,6 +14308,11 @@
       </note>
     </measure>
     <measure number="92">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -14532,6 +14692,11 @@
       </note>
     </measure>
     <measure number="94">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -14898,6 +15063,11 @@
       </note>
     </measure>
     <measure number="96">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -15277,6 +15447,11 @@
       </note>
     </measure>
     <measure number="98">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -15643,6 +15818,11 @@
       </note>
     </measure>
     <measure number="100">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -16022,6 +16202,11 @@
       </note>
     </measure>
     <measure number="102">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -16388,6 +16573,11 @@
       </note>
     </measure>
     <measure number="104">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -16939,6 +17129,11 @@
       </note>
     </measure>
     <measure number="108">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="2">2</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -17465,6 +17660,11 @@
       </note>
     </measure>
     <measure number="112">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -20454,6 +20654,11 @@
       </note>
     </measure>
     <measure number="131">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <rest />
         <duration>24</duration>
@@ -20667,6 +20872,11 @@
       </note>
     </measure>
     <measure number="132">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <rest />
         <duration>24</duration>
@@ -21257,6 +21467,11 @@
       </note>
     </measure>
     <measure number="135">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
@@ -21451,6 +21666,11 @@
       </note>
     </measure>
     <measure number="136">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
@@ -22352,6 +22572,11 @@
       </note>
     </measure>
     <measure number="163">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="2">2</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -22882,6 +23107,11 @@
       </note>
     </measure>
     <measure number="167">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>G</display-step>
@@ -25501,6 +25731,11 @@
       </note>
     </measure>
     <measure number="183">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="start" slashes="1">1</measure-repeat>
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
@@ -25695,6 +25930,11 @@
       </note>
     </measure>
     <measure number="184">
+      <attributes>
+        <measure-style>
+          <measure-repeat type="stop" />
+        </measure-style>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
