@@ -15,6 +15,8 @@ This project uses conventional five-line drumset notation:
 
 Additional tom pitches 43, 47 and 48 use filled noteheads in the upper voice. GM note 40 means **Electric Snare** (38 would mean Acoustic Snare), so conversion must not silently remap pitch 40.
 
+For an **open hi-hat**, the small `○` is horizontally centered over the `×` head and raised by a few staff steps; the renderer computes this position from the head, not from a fixed absolute staff coordinate. In the printed PDF Japanese credits are vector-outlined to avoid PDF font compatibility issues. The current score uses a printed `2/4` initial bar with two silent beats and explicitly changes to `4/4` on the following bar; this is not merely a half-rest visually mislabeled `4/4`.
+
 Beam rules: 8ths have one beam, 16ths two beams; beam groups are anchored to a quarter-note beat. The original bug produced one beam for dense 16th-note groups because the cross-head closing macro had the wrong primitive. The current script defines a proper terminal cross-head note.
 
-**Known limits**: 4/4 meter, 8th/16th quantization, silent pickup only, manually configured drum map. Non-quantized material, rolls, flams, non-GM percussion and odd meters require human review or converter extension. Velocity remains in the original MIDI; notation does not claim to preserve every performance nuance. No tool can infer right/left sticking from MIDI alone.
+**Known limits**: introductory 2/4 then 4/4 (otherwise 4/4), 8th/16th quantization, silent pickup only, manually configured drum map. Non-quantized material, rolls, flams, non-GM percussion and odd meters require human review or converter extension. Velocity remains in the original MIDI; notation does not claim to preserve every performance nuance. No tool can infer right/left sticking from MIDI alone.

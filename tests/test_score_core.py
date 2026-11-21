@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from score_core import build_score, hand_beams
 from midi_to_musicxml import convert
+from midi_to_musixtex import convert as musixtex_convert, open_hat_mark
 
 
 def fixture(tmp_path, pickup=0, lead=0):
@@ -52,6 +53,11 @@ def test_silent_pickup_shifts_full_bar(tmp_path):
     assert min(score.bars[1]) == 0
     root, _ = convert(score)
     assert root.findall('part/measure')[0].find('note/duration').text == '192'
+    assert root.findall('part/measure')[0].findtext('attributes/time/beats') == '2'
+    assert root.findall('part/measure')[1].findtext('attributes/time/beats') == '4'
+    tex = musixtex_convert(score)
+    assert r'\generalmeter{\meterfrac24}' in tex
+    assert r'\generalmeter{\meterfrac44}\changecontext' in tex
 
 
 def test_unmapped_note_fails(tmp_path):
@@ -78,3 +84,8 @@ def test_retag_does_not_change_timing(tmp_path):
     assert retag(src, dst) == 2
     assert [(m.type, m.time, getattr(m, 'channel', None)) for m in mido.MidiFile(dst).tracks[0]] == [
       ('note_on', 48, 9), ('note_off', 24, 9), ('end_of_track', 0, None)]
+
+
+def test_open_hat_mark_tracks_staff_position():
+    assert open_hat_mark('n') == r'\ccharnote{q}{$\circ$}'
+    assert open_hat_mark('o') == r'\ccharnote{r}{$\circ$}'

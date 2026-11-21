@@ -12,7 +12,7 @@ tempo_bpm: 200
 beats: 4
 beat_type: 4
 # The original MIDI has 4 beats before its first played note.
-# The score has a two-beat empty pickup, then the first full bar.
+# The score has an explicit 2/4 introductory measure, then 4/4.
 source_leading_beats: 4
 pickup_beats: 2
 quantize_divisions_per_beat: 4

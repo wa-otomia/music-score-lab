@@ -24,17 +24,17 @@ This document is the **single source of truth for autonomous agents** working in
 1. Parse `.mid` using `mido`; follow `metadata.yaml` and map events with `configs/japanese-drums.yaml`.
 2. Optionally use `scripts/retag_gm_channel10.py` to produce a GM channel-10 copy for other applications; do not replace original MIDI.
 3. Use `scripts/midi_to_musicxml.py` for editable MusicXML (never fake a score via drawing primitives).
-4. Use `scripts/render_score.py` for MusiXTeX-to-PDF engraving, with PyMuPDF only for page metadata/credits. Install CJK fonts in the environment; **never commit font binaries**.
+4. Use `scripts/render_score.py`: MusiXTeX engraves the notation, XeLaTeX/xeCJK typesets the Japanese credits, Inkscape converts those credits to **vector paths**, and PyMuPDF overlays them. Install CJK fonts locally; **never commit font binaries**. Do not revert to embedding FontTools-subset CJK fonts; they corrupted in some PDF viewers.
 5. Run `scripts/validate_score.py` to check events, bar lengths, beam levels, voices, title and PDF integrity. Run `pytest` for converter changes.
 6. Render the PDF to images and inspect first, densest, middle and last pages. Fix glyph substitutions, collisions, notehead style, beam counts and page breaks before publishing.
 
 ## Notation conventions
 
-- Japanese-style drum notation: cymbal and hi-hat notes use an `×` notehead, regular drums use filled elliptical heads; open hi-hat includes a small `○` mark.
+- Japanese-style drum notation: cymbal and hi-hat notes use an `×` notehead, regular drums use filled elliptical heads; open hi-hat includes a small `○` centered relative to the **actual notehead**, never an absolute staff height.
 - Stems **up** for hands (snare/toms/hi-hat/crash), **down** for feet (kick/hi-hat pedal).
 - A single beam represents eighths; two beams represent sixteenths. Do not let one beam span beyond its intended beat grouping.
 - MusiXTeX cross-head **terminal sixteenth** must close its secondary beam (`\\tbbu0` + `\\dotqh0`, as implemented), not just a plain quaver-ending primitive.
-- Opening pickups are explicit in metadata. `source_leading_beats` is the raw MIDI silent lead; `pickup_beats` is the abbreviated opening silence shown in print. Preserve the relative timing of sounding events.
+- Opening meters are explicit: for the current song the first bar has two silent beats and is **visibly marked `2/4`**, followed by `4/4` at the next bar. `source_leading_beats` is the raw MIDI silent lead; `pickup_beats` is the abbreviated opening silence shown in print. Preserve the relative timing of sounding events. New meters need converter and test support, not a misleading 4/4 pickup.
 - Preserve the GM pitch IDs even when the staff positions differ. MIDI channel 10 is conventional for GM drums; the converter must not require the input to already use channel 10.
 - This converter assumes 4/4 and a quarter subdivision grid of 2 or 4. **Do not silently process tuplets, odd meters, or unmapped drums**; extend the engine/tests or stop with a clear error.
 - The converter may collapse exact-time duplicates and represent close, weak pre-hits as grace notes; this is notation inference, not a claim of literal MIDI equivalence. Log the count.

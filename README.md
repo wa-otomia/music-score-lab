@@ -29,10 +29,10 @@ scores/<song-slug>/                One folder for each arrangement
 - Python 3.10+ and packages from `requirements.txt`
 - [MusiXTeX](https://www.ctan.org/pkg/musixtex), including `musixtex` and `musixper` (part of the TeX Live music packages)
 - Ghostscript (needed for the MusiXTeX PDF toolchain)
-- Fontconfig (`fc-match`) and a locally installed Japanese Noto Sans CJK font (or supply font paths)
+- XeLaTeX with `fontspec` / `xeCJK`, **Inkscape** CLI (`--export-text-to-path`), and locally installed **Noto Sans CJK JP** fonts
 - Optional: MuseScore for manual editing of MusicXML
 
-On Debian/Ubuntu, TeX Live/MusiXTeX may be installed with packages including `texlive-music`, `ghostscript`, `fontconfig`, and `fonts-noto-cjk` (exact package names depend on distribution).
+On Debian/Ubuntu, install the relevant packages (typically `texlive-music`, `texlive-xetex`, `texlive-lang-japanese`, `inkscape`, `ghostscript`, `fonts-noto-cjk`). Exact names may vary by distribution. No font binaries are shipped in this repository.
 
 ```bash
 python3 -m venv .venv
@@ -61,6 +61,8 @@ python scripts/retag_gm_channel10.py "$SONG/source.mid" --out build/gm-channel10
 ```
 
 This does not move notes or modify the source file. The converters themselves do not require MIDI channel 10.
+
+Japanese titles and credits are typeset using XeLaTeX then converted to **font-independent vector outlines** before they are merged with the MusiXTeX score. This avoids Japanese text corruption in browser PDF previews and Mac Preview; the notation itself stays vector. The opening silent bar is explicitly `2/4`, followed by `4/4`. Open hi-hat circles track their notehead positions.
 
 Do not automatically replace checked-in arrangements with newly generated output: inspect rendered pages and compare the result first. The tools output new files to `build/` by default. `--keep-tex build/score.tex` retains editable TeX for debugging.
 

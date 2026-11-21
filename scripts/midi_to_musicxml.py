@@ -93,7 +93,7 @@ def convert(score):
             attrs = ET.SubElement(m, 'attributes')
             ET.SubElement(attrs, 'divisions').text = str(score.tpq)
             tm = ET.SubElement(attrs, 'time')
-            ET.SubElement(tm, 'beats').text = str(meta.get('beats', 4))
+            ET.SubElement(tm, 'beats').text = str(score.pickup_ticks // score.tpq if is_pickup else meta.get('beats', 4))
             ET.SubElement(tm, 'beat-type').text = str(meta.get('beat_type', 4))
             ET.SubElement(ET.SubElement(m, 'clef'), 'sign').text = 'percussion'
             ET.SubElement(ET.SubElement(m, 'staff-details'), 'staff-lines').text = '5'
@@ -105,6 +105,13 @@ def convert(score):
         if is_pickup:
             write_note(m, score.pickup_ticks, score, 1, rest=True)
             continue
+        if i == 1 and score.pickup_ticks:
+            # Transition from the shortened introductory meter to the
+            # complete meter; this must be explicit in the MusicXML too.
+            attrs = ET.SubElement(m, 'attributes')
+            tm = ET.SubElement(attrs, 'time')
+            ET.SubElement(tm, 'beats').text = str(meta.get('beats', 4))
+            ET.SubElement(tm, 'beat-type').text = str(meta.get('beat_type', 4))
         durations = voice_durations(events, score)
         beams = hand_beams(events, score)
         for voice, part_name in ((1, 'hand'), (2, 'foot')):

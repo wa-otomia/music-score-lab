@@ -13,6 +13,17 @@ from score_core import build_score, voice_durations, hand_beams, chunks
 CUSTOM_MACROS = [r'\catcode`\@=11', r'\def\dotqh#1{\do@symbol\@tqh{#1}}', r'\catcode`\@=12']
 
 
+def open_hat_mark(note_pos: str) -> str:
+    """Center the 'open' ring a few staff steps above its x-shaped head.
+
+    In particular, do not anchor all rings at the absolute staff position `r`:
+    an open cymbal must track the notehead's actual staff position.
+    """
+    marker_pos = chr(ord(note_pos) + 3)
+    return r'\ccharnote{' + marker_pos + r'}{$\circ$}'
+
+
+
 def note_pedal(char, kind, length, tpq, zero=False):
     value = length * 4 // tpq
     macro = {1: 'ccl', 2: 'cl', 3: 'cl', 4: 'ql'}[value]
@@ -24,7 +35,7 @@ def note_pedal(char, kind, length, tpq, zero=False):
 
 
 def note_hand(char, kind, length, tpq, beaming=None):
-    circled = r'\zcharnote{r}{$\circ$}' if kind == 'open' else ''
+    circled = open_hat_mark(char) if kind == 'open' else ''
     if beaming:
         phase, strength = beaming
         start = '\\' + ('ibbu' if strength == 2 else 'ibu') + '0' + char + '0' if phase == 'start' else ''
@@ -71,7 +82,7 @@ def chord(t, notes, durations, beams, score):
         carrier = max(hands, key=lambda pitch: ord(m[pitch]['staff_pos']))
         for pitch in sorted((p for p in hands if p != carrier), key=lambda pitch: ord(m[pitch]['staff_pos'])):
             cfg = m[pitch]
-            if cfg['kind'] == 'open': result.append(r'\zcharnote{r}{$\circ$}')
+            if cfg['kind'] == 'open': result.append(open_hat_mark(cfg['staff_pos']))
             result.append('\\' + ('dozq' if cfg['kind'] != 'normal' else 'zq') + '{' + cfg['staff_pos'] + '}')
         cfg = m[carrier]
         result.append(note_hand(cfg['staff_pos'], cfg['kind'], durations[(t,'hand')], score.tpq, beams.get(t)))
@@ -110,8 +121,10 @@ def bar_tex(events, score):
 
 
 def convert(score):
+    intro_beats = score.pickup_ticks // score.tpq if score.pickup_ticks else score.metadata.get('beats', 4)
+    initial_meter = f'\\generalmeter{{\\meterfrac{intro_beats}4}}'
     lines = [r'\input musixtex', r'\input musixper', *CUSTOM_MACROS,
-             r'\instrumentnumber{1}', r'\setstaffs1{1}', r'\generalmeter{\meterfrac44}',
+             r'\instrumentnumber{1}', r'\setstaffs1{1}', initial_meter,
              r'\setclef1{0}', r'\setclefsymbol1{\drumclef}', r'\systemnumbers',
              r'\parindent=0pt', r'\centerline{\tenrm ~}', r'\smallskip',
              r'\centerline{\tenrm ~}', r'\smallskip', r'\centerline{\tenrm ~}',
@@ -127,6 +140,11 @@ def convert(score):
             lines += bar_tex(bar, score)
         stats.append(len(bar))
         if i == len(score.bars) - 1: break
+        if pickup:
+            # This is a shortened introductory measure, followed by a
+            # clearly printed 4/4 meter on the first complete measure.
+            lines.append(r'\generalmeter{\meterfrac44}\changecontext')
+            continue
         number = i - start + 1
         density = sum(stats[start:i+1])
         if (number >= 2 and density >= 25) or number >= 3:

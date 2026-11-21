@@ -106,7 +106,7 @@
       <attributes>
         <divisions>96</divisions>
         <time>
-          <beats>4</beats>
+          <beats>2</beats>
           <beat-type>4</beat-type>
         </time>
       </attributes>
@@ -133,6 +133,12 @@
       </note>
     </measure>
     <measure number="1" implicit="no">
+      <attributes>
+        <time>
+          <beats>4</beats>
+          <beat-type>4</beat-type>
+        </time>
+      </attributes>
       <note>
         <unpitched>
           <display-step>A</display-step>
