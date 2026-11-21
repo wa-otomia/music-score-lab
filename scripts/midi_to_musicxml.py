@@ -52,8 +52,7 @@ def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None,
     if chord:
         sub(note, 'chord')
     if hit is None:
-        rest = sub(note, 'rest', **({'measure': 'yes'} if item.measure_rest else {}))
-        del rest
+        sub(note, 'rest', **({'measure': 'yes'} if item.measure_rest else {}))
     else:
         unpitched = sub(note, 'unpitched')
         step, octave = display_pitch(hit.inst.staff)
@@ -159,11 +158,12 @@ def convert(score: Transcription) -> tuple[ET.Element, int]:
     credit = sub(root, 'credit', page='1')
     sub(credit, 'credit-type', 'title')
     sub(credit, 'credit-words', title, justify='center', valign='top', font_size='20')
-    for kind, key in (('composer', 'artist'), ('arranger', 'transcriber')):
+    for kind, key, justify in (('subtitle', 'artist', 'center'), ('composer', 'composer', 'right'),
+                               ('lyricist', 'lyricist', 'left'), ('arranger', 'transcriber', 'left')):
         if meta.get(key):
             c = sub(root, 'credit', page='1')
             sub(c, 'credit-type', kind)
-            sub(c, 'credit-words', meta[key], justify='right' if kind == 'composer' else 'left', valign='top')
+            sub(c, 'credit-words', meta[key], justify=justify, valign='top')
 
     part_list = sub(root, 'part-list')
     score_part = sub(part_list, 'score-part', id=SCORE_PART)

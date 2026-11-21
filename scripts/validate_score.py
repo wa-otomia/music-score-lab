@@ -17,6 +17,7 @@ import argparse
 import os
 import re
 import sys
+import unicodedata
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
@@ -80,11 +81,53 @@ def validate_musicxml(score: Transcription, path: Path, xsd: Path | None = None)
               f'{where}: 声部时值 {dict(spans)}，应各为 {bar.length}')
     expected = Counter(n for bar in score.bars for hits in bar.events.values() for n in hits)
     check(counts == expected, f'记谱音符与模型不一致：多 {dict(counts - expected)}，少 {dict(expected - counts)}')
+    compare_with_model(score, root)
     return f'MusicXML OK：{len(measures)} 小节，{sum(counts.values())} 个音'
 
 
+def _canonical(measure: ET.Element) -> list[tuple]:
+    """Everything musically relevant in a measure, in document order."""
+    out: list[tuple] = []
+    for el in measure:
+        if el.tag == 'attributes':
+            out.append(('attributes', el.findtext('time/beats'), el.findtext('time/beat-type'),
+                        el.findtext('measure-style/multiple-rest')))
+        elif el.tag == 'direction':
+            out.append(('tempo', el.findtext('direction-type/metronome/per-minute')))
+        elif el.tag == 'backup':
+            out.append(('backup', el.findtext('duration')))
+        elif el.tag == 'note':
+            head = el.find('notehead')
+            out.append((
+                'note', el.find('grace') is not None, el.find('chord') is not None,
+                el.find('rest') is not None, (el.find('rest').get('measure') if el.find('rest') is not None else None),
+                el.findtext('duration'), (el.find('instrument').get('id') if el.find('instrument') is not None else None),
+                el.findtext('voice'), el.findtext('type'), len(el.findall('dot')),
+                el.findtext('time-modification/actual-notes'), el.findtext('time-modification/normal-notes'),
+                el.findtext('stem'), head.text if head is not None else None,
+                head.get('filled') if head is not None else None, head.get('parentheses') if head is not None else None,
+                tuple((b.get('number'), b.text) for b in el.findall('beam')),
+                tuple((t.get('type'), t.get('bracket')) for t in el.findall('notations/tuplet')),
+                tuple(c.tag for c in el.findall('notations/technical/*')),
+                tuple(c.tag for c in el.findall('notations/articulations/*'))))
+    return out
+
+
+def compare_with_model(score: Transcription, root: ET.Element) -> None:
+    """The file must match a fresh conversion of the MIDI note for note (catches stale,
+    hand-edited or corrupted files: lost graces, changed heads, tuplets, meters, marks)."""
+    from midi_to_musicxml import convert
+    fresh, _ = convert(score)
+    for got, want, bar in zip(root.findall('part/measure'), fresh.findall('part/measure'), score.bars):
+        a, b = _canonical(got), _canonical(want)
+        if a != b:
+            index = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+            detail = f'文件：{a[index] if index < len(a) else "（缺失）"}；应为：{b[index] if index < len(b) else "（多余）"}'
+            raise ValidationError(f'第 {bar.number} 小节与 MIDI 重新转换的结果不一致：{detail}')
+
+
 def normalize(text: str) -> str:
-    return re.sub(r'\s+', '', text)
+    return re.sub(r'\s+', '', unicodedata.normalize('NFC', text))
 
 
 def validate_pdf(score: Transcription, path: Path) -> str:
@@ -128,7 +171,12 @@ def _check_pdffonts(path: Path) -> None:
 
 def default_xsd() -> Path | None:
     env = os.environ.get('MUSICXML_XSD')
-    return Path(env) if env and Path(env).exists() else None
+    return Path(env) if env else None
+
+
+def check_xsd(xsd: Path | None) -> None:
+    if xsd is not None and not xsd.is_file():
+        raise ValidationError(f'找不到 MusicXML XSD：{xsd}（检查 --xsd 或环境变量 MUSICXML_XSD）')
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,7 +191,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--xsd', type=Path, default=default_xsd(),
                         help='MusicXML 4.0 musicxml.xsd 路径（也可设环境变量 MUSICXML_XSD）')
     args = parser.parse_args(argv)
+    if not args.musicxml and not args.pdf:
+        parser.error('至少指定 --musicxml 或 --pdf 之一')
     try:
+        check_xsd(args.xsd)
+        for target in (args.musicxml, args.pdf):
+            if target is not None and not target.is_file():
+                raise ValidationError(f'找不到文件：{target}')
         score = build_score(args.midi, args.metadata, args.drum_map,
                             cli={'tracks': args.track, 'channels': args.channel})
         if args.musicxml:

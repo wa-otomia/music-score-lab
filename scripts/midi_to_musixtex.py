@@ -22,7 +22,7 @@ from score_core import (R, STAFF_LETTERS, Bar, Hit, ScoreError, Transcription, V
 
 SYMBOL = {
     'normal': r'\q@symbol', 'x': r'\do@symbol', 'circle-x': r'\dc@symbol', 'diamond': r'\d@symbol',
-    'triangle': r'\t@symbol', 'plus': r'\k@symbol', 'rhombus': r'\r@symbol',
+    'triangle': r'\tl@symbol', 'plus': r'\k@symbol', 'rhombus': r'\y@symbol',
 }
 MARK_TEXT = {'open': r'$\circ$', 'half-open': r'$\ominus$', 'closed': r'{\tenrm +}'}
 BEAM = {'hand': 0, 'foot': 1}
@@ -34,6 +34,8 @@ PREAMBLE = r"""\input musixtex
 \special{papersize=210mm,297mm}
 \voffset-6mm
 \overfullrule=0pt
+\def\tl@symbol{\def\q@u{\lower.5\internote\hbox{\musixchar116}}}
+\def\vrest#1#2{\zcharnote{#1}{\musixchar#2}}
 """
 
 
@@ -91,11 +93,13 @@ class VoiceWriter:
                 out.append(r'\pt{' + h.inst.staff + '}')
             out.append(SYMBOL[h.inst.head] + r'\@zq{' + h.inst.staff + '}')
         out.append(self.tuplet_label(item, heads))
+        accent = ''
+        if self.up and any(h.accent for h in heads):
+            # one accent per chord, clear of the stem or beam (beam form must follow the beam start)
+            accent = r'\busf' + str(self.beam) if item.beams else r'\usf{' + shift(carrier.inst.staff, 9) + '}'
         if dots:
             out.append(r'\pt{' + carrier.inst.staff + '}')
-        if not spacing_note:
-            out.append(r'\advancefalse')
-        out.append(self.carrier(item, carrier, name))
+        out.append(self.carrier(item, carrier, name, accent, '' if spacing_note else r'\advancefalse'))
         return ''.join(out)
 
     def ornaments(self, h: Hit) -> str:
@@ -104,10 +108,8 @@ class VoiceWriter:
         if h.ghost:
             out += r'\lpar{' + p + r'}\rpar{' + p + '}'
         if h.inst.mark:
-            target = shift(p, 3) if self.up else shift(p, -3)
-            out += r'\ccharnote{' + target + '}{' + MARK_TEXT[h.inst.mark] + '}'
-        if h.accent and self.up:
-            out += r'\usf{' + shift(p, 9) + '}'
+            # above the head, on the side away from a down stem's beam
+            out += r'\ccharnote{' + shift(p, 3 if self.up else 2) + '}{' + MARK_TEXT[h.inst.mark] + '}'
         return out
 
     def tuplet_label(self, item: VoiceItem, heads: list[Hit]) -> str:
@@ -120,8 +122,10 @@ class VoiceWriter:
         target = shift(p, 10) if self.up else shift(p, -9)
         return r'\ccharnote{' + target + r'}{\eightit ' + str(number) + '}'
 
-    def carrier(self, item: VoiceItem, h: Hit, name: str) -> str:
-        sym, p, n = SYMBOL[h.inst.head], h.inst.staff, str(self.beam)
+    def carrier(self, item: VoiceItem, h: Hit, name: str, accent: str = '', prefix: str = '') -> str:
+        """Beam commands, then ``accent`` and ``prefix`` (e.g. \\advancefalse), then the note."""
+        sym = accent + prefix + SYMBOL[h.inst.head]
+        p, n = h.inst.staff, str(self.beam)
         u = 'u' if self.up else 'l'
         if not item.beams:
             routine = {'quarter': 'q', 'eighth': 'c', '16th': 'cc', 'half': 'h', 'whole': 'w'}[name]
@@ -209,9 +213,16 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
             if not it.is_rest:
                 timeline.setdefault(it.start, {})[part] = it
     tuplets = {**voice_tuplets(bar, 'foot'), **voice_tuplets(bar, 'hand')}
-    for a, b in silent_spans(bar, voices):
+    silent = silent_spans(bar, voices)
+    for a, b in silent:
         for rest in _rests(a, b, bar, tuplets):
             timeline.setdefault(rest.start, {})['rest'] = rest
+    # A rest inside a tuplet group is printed for its own voice (raised for hands, lowered
+    # for feet) even while the other voice plays, so the tuplet visibly adds up.
+    for part, items in voices.items():
+        for it in items:
+            if it.is_rest and it.tuplet and not any(a <= it.start < b for a, b in silent):
+                timeline.setdefault(it.start, {})[f'{part}-rest'] = it
     times = sorted(timeline)
     groups: list[str] = []
     width = 0.0
@@ -221,8 +232,14 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         body = ''
         if i == 0 and bar.tempo is not None and bar.index > 0:
             body += tempo_mark(bar)
+        for part, pitch in (('hand', 'i'), ('foot', 'a')):
+            if f'{part}-rest' in entry:
+                glyph = {'eighth': 63, '16th': 64, 'quarter': 62}[note_type(entry[f'{part}-rest'])[0]]
+                body += r'\vrest{' + pitch + '}{' + str(glyph) + '}'
         if 'rest' in entry and not ('hand' in entry or 'foot' in entry):
             body += rest_macro(entry['rest'])
+        elif not ('hand' in entry or 'foot' in entry):
+            body += r'\sk'  # only a voice rest here: advance without a spacing note
         else:
             graces = ''.join(writers[p].grace(entry[p]) for p in ('foot', 'hand') if p in entry)
             if graces:
@@ -274,46 +291,59 @@ def convert(score: Transcription, *, header_space: float = 0.0, line_width: floa
         else:
             units.append([bar])
 
-    line_used = 0.0
-    line_bars = 0
-    for u, unit in enumerate(units):
+    # render every unit first, then plan systems from the estimated widths
+    rendered: list[tuple[list[str], float]] = []
+    for unit in units:
         bar = unit[0]
-        lines.append(f'% bar {bar.number}' + (f'-{unit[-1].number}' if len(unit) > 1 else '')
-                     + (' (pickup)' if bar.pickup else ''))
+        body = [f'% bar {bar.number}' + (f'-{unit[-1].number}' if len(unit) > 1 else '')
+                + (' (pickup)' if bar.pickup else '')]
         if bar_is_empty(bar) and not bar.pickup:
             n = len(unit)
-            lines.append(r'\vnotes' + ('7' if n == 1 else '12') + r'\elemskip'
-                         + (tempo_mark(bar) if bar.tempo and bar.index else '') + r'\en')
+            body.append(r'\vnotes' + ('7' if n == 1 else '12') + r'\elemskip'
+                        + (tempo_mark(bar) if bar.tempo and bar.index else '') + r'\en')
             atnext = r'\centerHpause{' + str(n) + '}' if n > 1 else r'\centerpause'
-            lines.append(r'\def\atnextbar{\znotes' + atnext + r'\en}')
-            width = 7.0 if n == 1 else 12.0
+            body.append(r'\def\atnextbar{\znotes' + atnext + r'\en}')
+            width = 8.0 if n == 1 else 13.0
         elif bar.pickup and bar_is_empty(bar):
-            rests = [rest_macro(it) for it in _rests(0, bar.length, bar)]
-            lines += [spacing(R * 2) + r + r'\en' for r in rests]
+            body += [spacing(R * 2) + rest_macro(it) + r'\en' for it in _rests(0, bar.length, bar)]
             width = 5.0
         else:
             groups, width = bar_groups(bar)
-            lines += groups
+            body += groups
         if len(unit) > 1:
-            lines.append(r'\global\advance\barno by ' + str(len(unit) - 1))
-        line_used += width
-        line_bars += 1
-        if u == len(units) - 1:
+            body.append(r'\global\advance\barno by ' + str(len(unit) - 1))
+        rendered.append((body, width + 1.5))  # + bar line and clearance
+
+    systems: list[list[int]] = [[]]
+    used = 0.0
+    for u, (_body, width) in enumerate(rendered):
+        if systems[-1] and (len(systems[-1]) >= max_bars_per_line or used + width > line_width):
+            systems.append([])
+            used = 0.0
+        systems[-1].append(u)
+        used += width
+    if len(systems) > 1:
+        last = sum(rendered[u][1] for u in systems[-1])
+        prev = sum(rendered[u][1] for u in systems[-2])
+        if (last < line_width * 0.45 and prev + last <= line_width * 1.15
+                and len(systems[-2]) + len(systems[-1]) <= max_bars_per_line + 1):
+            systems[-2] += systems.pop()  # avoid a lonely, stretched last system
+
+    starts = {s_[0] for s_ in systems}
+    for u, (body, _width) in enumerate(rendered):
+        lines += body
+        if u == len(rendered) - 1:
             break
         nxt = units[u + 1][0]
-        next_width = estimate_width(nxt)
         if nxt.show_meter:
             lines.append(r'\generalmeter{\meterfrac{' + str(nxt.beats) + '}{4}}')
-        if line_bars >= max_bars_per_line or (line_bars >= 1 and line_used + next_width > line_width):
+        if u + 1 in starts:
             lines.append(r'\alaligne')
-            line_used, line_bars = 0.0, 0
         elif nxt.show_meter:
             lines.append(r'\changecontext')
         else:
             lines.append(r'\bar')
-    # a short last system is left ragged instead of being stretched across the page
-    ending = r'\setdoubleBAR\raggedstoppiece' if line_used < line_width * 0.6 else r'\endpiece'
-    lines += [ending, r'\bye']
+    lines += [r'\setdoubleBAR\endpiece', r'\bye']
     return '\n'.join(lines) + '\n'
 
 

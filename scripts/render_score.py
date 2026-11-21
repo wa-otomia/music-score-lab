@@ -19,7 +19,7 @@ Noto Sans CJK JP（fonts-noto-cjk）。
 from __future__ import annotations
 
 import argparse
-import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,7 +52,17 @@ ROLE_LABELS = {
 
 
 def escape_tex(text: object) -> str:
-    return ''.join(TEX_ESCAPES.get(c, c) for c in str(text))
+    """Escape for XeLaTeX; line breaks and runs of whitespace become one space."""
+    flat = re.sub(r'[ \t\r\n\f\v]+', ' ', str(text)).strip()  # keep U+3000 ideographic spaces
+    return ''.join(TEX_ESCAPES.get(c, c) for c in flat)
+
+
+def check_glyphs(log: Path) -> None:
+    """XeTeX only logs characters the font lacks; they would print as empty boxes."""
+    missing = sorted(set(re.findall(r'Missing character: There is no (.+?) \(', log.read_text(errors='replace'))))
+    if missing:
+        raise RuntimeError(f'字体 {FONT} 中没有这些字符，PDF 会印成方框：{"、".join(missing)}。'
+                           '请在元数据中换用其他写法（例如去掉表情符号）')
 
 
 def run(command: list[str], cwd: Path, *, max_log: int = 4000) -> str:
@@ -190,8 +200,8 @@ def latex_preamble(score: Transcription, header: HeaderText) -> str:
 \usepackage{{pdfpages}}
 \usepackage[unicode,hidelinks]{{hyperref}}
 \XeTeXgenerateactualtext=1
-\setmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}}]
-\setCJKmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}}]
+\setmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}},Mapping=none,Ligatures={{NoCommon,NoRequired,NoContextual}}]
+\setCJKmainfont{{{FONT}}}[BoldFont={{{FONT} Bold}},Mapping=none,Ligatures={{NoCommon,NoRequired,NoContextual}}]
 \hypersetup{{pdftitle={{{escape_tex(header.title)} ドラム譜}},pdfauthor={{{escape_tex(author)}}},
   pdfsubject={{{escape_tex(subject)}}},pdfkeywords={{drum score, ドラム譜, MusicXML}},
   pdfcreator={{music-score-lab (MusiXTeX + Ghostscript + XeLaTeX)}}}}
@@ -203,6 +213,7 @@ def latex_preamble(score: Transcription, header: HeaderText) -> str:
   {{\fontsize{{6.5}}{{7.5}}\selectfont #3\\#4}}}}}}
 \newsavebox\FitBox
 \newcommand\FitLine[1]{{\sbox\FitBox{{#1}}\ifdim\wd\FitBox>\linewidth\resizebox{{\linewidth}}{{!}}{{#1}}\else#1\fi}}
+\newcommand\FitBlock[1]{{\makebox[{CONTENT_WIDTH}bp]{{\sbox\FitBox{{#1}}\ifdim\wd\FitBox>{CONTENT_WIDTH}bp\resizebox{{{CONTENT_WIDTH}bp}}{{!}}{{#1}}\else#1\fi}}}}
 \newsavebox\HeaderBox
 \newcommand\MakeHeader{{\sbox\HeaderBox{{\begin{{minipage}}[b]{{{CONTENT_WIDTH}bp}}\centering
   {{\fontsize{{20}}{{25}}\selectfont\bfseries {escape_tex(header.title)}\par}}\vspace{{3pt}}
@@ -229,6 +240,7 @@ def measure_header(work: Path, score: Transcription, header: HeaderText, legend:
 """
     (work / 'header.tex').write_text(source, encoding='utf-8')
     run(['xelatex', '-interaction=nonstopmode', '-halt-on-error', 'header.tex'], work)
+    check_glyphs(work / 'header.log')
     text = (work / 'header-height.txt').read_text().strip()
     return float(text.removesuffix('pt')) * 72 / 72.27  # TeX pt -> PDF bp
 
@@ -237,9 +249,9 @@ def compose(work: Path, score: Transcription, header: HeaderText, legend: bool, 
     head_y = PAGE_H - HEADER_TOP
     footer = rf'\put(0,22){{\makebox[{PAGE_W}bp]{{\fontsize{{8}}{{9}}\selectfont\thepage\ / {pages}}}}}'
     first = (rf'\put({CONTENT_LEFT},{head_y:.2f}){{\raisebox{{-\height}}{{\usebox\HeaderBox}}}}' + footer
-             + (rf'\put(0,36){{\makebox[{PAGE_W}bp]{{\fontsize{{7}}{{8}}\selectfont {escape_tex(header.footer_note)}}}}}'
+             + (rf'\put({CONTENT_LEFT},36){{\FitBlock{{\fontsize{{7}}{{8}}\selectfont {escape_tex(header.footer_note)}}}}}'
                 if header.footer_note else ''))
-    running = (rf'\put(0,{PAGE_H - 34:.2f}){{\makebox[{PAGE_W}bp]{{\fontsize{{8}}{{9}}\selectfont '
+    running = (rf'\put({CONTENT_LEFT},{PAGE_H - 34:.2f}){{\FitBlock{{\fontsize{{8}}{{9}}\selectfont '
                rf'{escape_tex(header.running)}}}}}' + footer)
     body = rf"""\begin{{document}}
 \MakeHeader
@@ -250,6 +262,7 @@ def compose(work: Path, score: Transcription, header: HeaderText, legend: bool, 
     body += r'\end{document}' + '\n'
     (work / 'compose.tex').write_text(header_source(score, header, legend) + body, encoding='utf-8')
     run(['xelatex', '-interaction=nonstopmode', '-halt-on-error', 'compose.tex'], work)
+    check_glyphs(work / 'compose.log')
     fix_tounicode(work / 'compose.pdf')
     out.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(work / 'compose.pdf', out)
@@ -262,7 +275,7 @@ def outline(src: Path, dst: Path, work: Path) -> None:
 
 def musixtex(work: Path, name: str, source: str) -> Path:
     (work / f'{name}.tex').write_text(source, encoding='ascii')
-    run(['musixtex', '-d', f'{name}.tex'], work)
+    run(['musixtex', '-d', '-i', f'{name}.tex'], work)
     pdf = work / f'{name}.pdf'
     if not pdf.exists():
         raise RuntimeError(f'MusiXTeX 没有生成 {pdf.name}；详见 {work / (name + ".log")}')
@@ -299,6 +312,10 @@ def render(score: Transcription, out: Path, work: Path, *, keep_tex: Path | None
         keep_tex.parent.mkdir(parents=True, exist_ok=True)
         keep_tex.write_text(source, encoding='ascii')
     engraved = musixtex(work, 'score', source)
+    log = (work / 'score.log').read_text(errors='replace') if (work / 'score.log').exists() else ''
+    overfull = [float(x) for x in re.findall(r'Overfull \\hbox \(([\d.]+)pt too wide\)', log)]
+    if overfull and max(overfull) > 4:
+        score.warnings.append(f'有 {len(overfull)} 行谱面略超出版心（最多 {max(overfull):.1f}pt），请目视检查')
     outline(engraved, work / 'notes.pdf', work)
     with pymupdf.open(work / 'notes.pdf') as doc:
         pages = len(doc)

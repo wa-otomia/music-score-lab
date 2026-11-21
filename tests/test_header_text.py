@@ -53,4 +53,10 @@ def test_meter_summary_truncated(tmp_path):
 
 def test_escape_tex():
     assert escape_tex(r'50% & $5 #1 a_b {x} ~ ^ \ ') == \
-        r'50\% \& \$5 \#1 a\_b \{x\} \textasciitilde{} \textasciicircum{} \textbackslash{} '
+        r'50\% \& \$5 \#1 a\_b \{x\} \textasciitilde{} \textasciicircum{} \textbackslash{}'
+
+
+def test_escape_tex_collapses_line_breaks():
+    # a blank line inside a TeX argument would end the paragraph and break the build
+    assert escape_tex('Para\n\ntitle\t x') == 'Para title x'
+    assert escape_tex('曲名　アーティスト') == '曲名　アーティスト'  # ideographic space is kept

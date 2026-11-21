@@ -10,6 +10,7 @@ XeLaTeX 打开 ``\\XeTeXgenerateactualtext`` 后，每段文字都包在
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 
 import pymupdf
@@ -108,11 +109,27 @@ def observed_codes(doc: pymupdf.Document) -> dict[int, dict[int, str]]:
             codes_hex = b''.join(h.replace(b' ', b'').replace(b'\n', b'') for h in HEX.findall(body.split(b'Tf', 1)[1]))
             codes = [int(codes_hex[i:i + 4], 16) for i in range(0, len(codes_hex), 4)]
             text = _decode_actual(actual)
-            if len(codes) != len(text):
-                continue  # ligature or other many-to-one run: leave as is
-            for code, char in zip(codes, text):
-                result.setdefault(xref, {})[code] = char
+            if len(codes) == 1 and text:
+                pairs = [(codes[0], text)]  # one glyph for several code points (e.g. a variation sequence)
+            elif len(codes) == len(text):
+                pairs = list(zip(codes, text))
+            else:
+                continue  # many-to-one run: leave xdvipdfmx's mapping as is
+            for code, char in pairs:
+                if code == 0:
+                    continue  # .notdef: never claim it stands for a character
+                char = unicodedata.normalize('NFC', char)
+                known = result.setdefault(xref, {}).get(code)
+                if known is not None and known != char:
+                    raise ToUnicodeConflict(code, known, char)
+                result[xref][code] = char
     return result
+
+
+class ToUnicodeConflict(RuntimeError):
+    def __init__(self, code: int, first: str, second: str):
+        super().__init__(f'「{first}」和「{second}」在字体里是同一个字形，复制文字时无法区分。'
+                         f'请在元数据里统一只用其中一个（字形代码 {code}）')
 
 
 def fix_tounicode(path: Path) -> int:

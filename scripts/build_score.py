@@ -41,34 +41,46 @@ def main(argv: list[str] | None = None) -> int:
     except ScoreError as exc:
         print(f'错误：{exc}', file=sys.stderr)
         return 2
-    for warning in score.warnings:
+    early_warnings = list(score.warnings)
+    for warning in early_warnings:
         print(f'提示：{warning}', file=sys.stderr)
     print(score.summary())
 
     out = args.out_dir
-    out.mkdir(parents=True, exist_ok=True)
-    musicxml = out / 'score.musicxml'
-    midi_to_musicxml.write(score, musicxml)
-    pdf = out / 'score.pdf'
     try:
+        validate_score.check_xsd(args.xsd)
+        if out.exists() and not out.is_dir():
+            raise RuntimeError(f'--out-dir 指向的是已有文件而不是目录：{out}')
+        out.mkdir(parents=True, exist_ok=True)
+        # write next to the targets first; replace score.* only after every check passed
+        musicxml, pdf = out / 'score.musicxml', out / 'score.pdf'
+        new_xml, new_pdf = out / '.score.musicxml.new', out / '.score.pdf.new'
+        midi_to_musicxml.write(score, new_xml)
+        print(validate_score.validate_musicxml(score, new_xml, args.xsd))
         if not args.no_pdf:
             if args.work_dir:
                 args.work_dir.mkdir(parents=True, exist_ok=True)
-                info = render_score.render(score, pdf, args.work_dir.resolve())
+                info = render_score.render(score, new_pdf, args.work_dir.resolve())
             else:
                 with tempfile.TemporaryDirectory(prefix='drum-score-') as temp:
-                    info = render_score.render(score, pdf, Path(temp))
+                    info = render_score.render(score, new_pdf, Path(temp))
+            print(validate_score.validate_pdf(score, new_pdf))
+            new_pdf.replace(pdf)
             print(f'{pdf}: A4 {info["pages"]} 页')
-        print(f'{musicxml}')
-        print(validate_score.validate_musicxml(score, musicxml, args.xsd))
-        if not args.no_pdf:
-            print(validate_score.validate_pdf(score, pdf))
-    except RuntimeError as exc:
+        new_xml.replace(musicxml)
+        print(musicxml)
+        for warning in score.warnings[len(early_warnings):]:
+            print(f'提示：{warning}', file=sys.stderr)
+    except (ScoreError, RuntimeError, OSError) as exc:
         print(f'错误：{exc}', file=sys.stderr)
         return 2
     except validate_score.ValidationError as exc:
         print(f'校验失败：{exc}', file=sys.stderr)
         return 1
+    finally:
+        for leftover in (out / '.score.musicxml.new', out / '.score.pdf.new'):
+            if leftover.exists():
+                leftover.unlink()
     return 0
 
 
