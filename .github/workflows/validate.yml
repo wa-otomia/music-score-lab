@@ -1,4 +1,7 @@
-name: Score conversion tests
+# Rebuild every score from its MIDI + metadata (MusicXML + PDF) and run all checks:
+# pytest, MusicXML 4.0 XSD validation, and the PDF checks in scripts/validate_score.py.
+name: Score build and validation
+
 on:
   push:
     paths:
@@ -10,19 +13,185 @@ on:
       - 'requirements.txt'
       - '.github/workflows/validate.yml'
   pull_request:
+    paths:
+      - 'scripts/**'
+      - 'configs/**'
+      - 'scores/**/metadata.yaml'
+      - 'scores/**/*.mid'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/validate.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  conversion:
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: '1'
+      # MusicXML 4.0 schema (tag v4.0). The hashes are of the upstream files, taken
+      # before the schemaLocation rewrite below.
+      XSD_BASE_URL: https://raw.githubusercontent.com/w3c/musicxml/v4.0/schema
+      XSD_SHA256: |
+        bfe37ed25a9ec00e6f2591d53df260b84efe12aed209ba3ac0a76f9287665a99  musicxml.xsd
+        616a3077df5cfc954ac74a75abe9697b95eef7a85dbe09367d995a483e840eb5  xml.xsd
+        6e601f8eeb41618b50e4c7f944dff754e57ea43b602755470dda24c9c2f6df92  xlink.xsd
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
         with:
-          python-version: '3.11'
-      - run: pip install -r requirements.txt pytest
-      - run: python -m pytest -q tests
-      - name: Rebuild MusicXML (does not overwrite curated score)
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install TeX / PDF toolchain
+        # --no-install-recommends stops texlive-lang-cjk from pulling in latex-cjk-all and the
+        # Chinese/Japanese/Korean TeX collections. The pieces the build does need are listed:
+        #   texlive-lang-chinese       ctexhook.sty, which xeCJK.sty requires
+        #   texlive-fonts-recommended  phvr8t.tfm (loaded by musixtex.tex), pzdr.tfm (hyperref)
         run: |
-          mkdir -p build
-          python scripts/midi_to_musicxml.py scores/inochi-ni-kirawareteiru/gm-channel10.mid --metadata scores/inochi-ni-kirawareteiru/metadata.yaml --out build/generated.musicxml
-          python scripts/validate_score.py scores/inochi-ni-kirawareteiru/gm-channel10.mid --metadata scores/inochi-ni-kirawareteiru/metadata.yaml --musicxml build/generated.musicxml
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-music texlive-xetex texlive-lang-cjk texlive-lang-chinese \
+            texlive-latex-recommended texlive-fonts-recommended \
+            ghostscript poppler-utils fonts-noto-cjk
+          for tool in musixtex etex musixflx dvipdfmx xelatex gs pdfinfo pdffonts; do
+            command -v "$tool" >/dev/null || { echo "::error::missing command $tool"; exit 1; }
+          done
+          for file in musixtex.tex musixper.tex fontspec.sty xeCJK.sty ctexhook.sty pdfpages.sty \
+                      geometry.sty hyperref.sty phvr8t.tfm pzdr.tfm; do
+            kpsewhich "$file" >/dev/null || { echo "::error::TeX cannot find $file"; exit 1; }
+          done
+          for face in 'Noto Sans CJK JP:style=Regular' 'Noto Sans CJK JP:style=Bold'; do
+            [[ -n "$(fc-list "$face" file)" ]] || { echo "::error::font not installed: $face"; exit 1; }
+          done
+          xelatex --version | head -n 1
+          echo "Ghostscript $(gs --version)"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest lxml
+          python -c "import mido, yaml, lxml, pymupdf; print('PyMuPDF', pymupdf.VersionBind)"
+
+      - name: Fetch MusicXML 4.0 XSD
+        run: |
+          dir="$RUNNER_TEMP/musicxml-xsd"
+          mkdir -p "$dir"
+          for f in musicxml.xsd xml.xsd xlink.xsd; do
+            curl -fsSL --retry 3 --retry-delay 5 -o "$dir/$f" "$XSD_BASE_URL/$f"
+          done
+          (cd "$dir" && printf '%s' "$XSD_SHA256" | sha256sum --check --strict -)
+          # musicxml.xsd imports xml.xsd and xlink.xsd from http://www.musicxml.org/xsd/;
+          # point the imports at the local copies so validation never touches the network.
+          sed -i -E 's#schemaLocation="http://www\.musicxml\.org/xsd/(xml|xlink)\.xsd"#schemaLocation="\1.xsd"#' \
+            "$dir/musicxml.xsd"
+          if grep -n 'schemaLocation="http' "$dir/musicxml.xsd"; then
+            echo "::error::musicxml.xsd still imports a remote schema"; exit 1
+          fi
+          python -c "import sys; from lxml import etree; etree.XMLSchema(etree.parse(sys.argv[1])); print('XSD OK')" \
+            "$dir/musicxml.xsd"
+          echo "MUSICXML_XSD=$dir/musicxml.xsd" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        run: python -m pytest -q -rs tests
+
+      - name: Build and validate every score
+        # scores/<slug>/source.mid + metadata.yaml -> build/<slug>/score.musicxml + score.pdf
+        run: |
+          shopt -s nullglob
+          dirs=(scores/*/)
+          (( ${#dirs[@]} )) || { echo "::error::no score directories under scores/"; exit 1; }
+          status=0
+          for dir in "${dirs[@]}"; do
+            dir=${dir%/}
+            slug=${dir##*/}
+            echo "::group::$slug"
+            missing=()
+            [[ -f "$dir/source.mid" ]] || missing+=(source.mid)
+            [[ -f "$dir/metadata.yaml" ]] || missing+=(metadata.yaml)
+            if (( ${#missing[@]} )); then
+              echo "::error file=$dir::$slug is missing ${missing[*]}"
+              status=1
+            elif ! python scripts/build_score.py "$dir/source.mid" \
+                   --metadata "$dir/metadata.yaml" \
+                   --out-dir "build/$slug" \
+                   --work-dir "$RUNNER_TEMP/tex-work/$slug" \
+                   --xsd "$MUSICXML_XSD"; then
+              echo "::error file=$dir/metadata.yaml::$slug failed to build or validate"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Check alternate MIDI exports (MusicXML only)
+        # Other *.mid files in a score directory (e.g. gm-channel10.mid, the same events on
+        # GM channel 10) must still convert and validate with the same metadata.
+        # Their output is not part of the artifact.
+        run: |
+          shopt -s nullglob
+          status=0
+          for midi in scores/*/*.mid; do
+            [[ ${midi##*/} == source.mid ]] && continue
+            dir=${midi%/*}
+            [[ -f "$dir/metadata.yaml" ]] || continue
+            name=${midi##*/}
+            echo "::group::$midi"
+            if ! python scripts/build_score.py "$midi" --metadata "$dir/metadata.yaml" --no-pdf \
+                   --out-dir "$RUNNER_TEMP/variants/${dir##*/}/${name%.mid}" --xsd "$MUSICXML_XSD"; then
+              echo "::error file=$midi::$midi failed to convert or validate"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Summarize PDFs
+        if: ${{ !cancelled() }}
+        run: |
+          shopt -s nullglob
+          pdfs=(build/*/score.pdf)
+          (( ${#pdfs[@]} )) || exit 0
+          {
+            echo '### Built scores'
+            for pdf in "${pdfs[@]}"; do
+              pages=$(pdfinfo "$pdf" | awk '/^Pages:/ {print $2}')
+              echo "#### ${pdf#build/} ($pages pages)"
+              echo '```'
+              pdffonts "$pdf"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload scores
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: scores
+          path: build/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload TeX work files
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: tex-work
+          path: ${{ runner.temp }}/tex-work/
+          if-no-files-found: ignore
+          retention-days: 7

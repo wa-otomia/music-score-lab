@@ -1,22 +1,184 @@
-# Japanese-style drum notation
+# 记谱约定
 
-This project uses conventional five-line drumset notation:
+本文描述转换器**当前实现**的日式鼓谱记法。PDF 与 MusicXML 来自同一个记谱模型（`scripts/score_core.py`），
+节奏、时值、横梁完全一致；两者的差别只在休止符的印法（见“休止符”）。
 
-| Instrument | GM note | Shape | Voice |
-| --- | ---: | --- | --- |
-| Bass drum | 36 | Filled | Feet / down-stem |
-| Pedal hi-hat | 44 | × | Feet / down-stem |
-| Snare (electric) | 40 | Filled | Hands / up-stem |
-| Side stick | 37 | × | Hands / up-stem |
-| Closed hi-hat | 42 | × | Hands / up-stem |
-| Open hi-hat | 46 | × with ○ | Hands / up-stem |
-| Crash cymbal | 49 | × | Hands / up-stem |
-| Splash cymbal | 55 | × | Hands / up-stem |
+## 谱表与声部
 
-Additional tom pitches 43, 47 and 48 use filled noteheads in the upper voice. GM note 40 means **Electric Snare** (38 would mean Acoustic Snare), so conversion must not silently remap pitch 40.
+- 一个五线谱表，打击乐谱号。
+- **上声部（voice 1）＝手**：军鼓、嗵鼓、镲、踩镲、辅助打击乐，符干朝上。
+- **下声部（voice 2）＝脚**：底鼓、踩镲踏板，符干朝下。
+- 同一声部同时击打的几个音合成一个和弦，共用一根符干。
+- 标题区最后一行印 `上声部（符尾上）＝手　下声部（符尾下）＝足` 作为提示。
 
-For an **open hi-hat**, the small `○` is horizontally centered over the `×` head and raised by a few staff steps; the renderer computes this position from the head, not from a fixed absolute staff coordinate. In the printed PDF Japanese credits are vector-outlined to avoid PDF font compatibility issues. The current score uses a printed `2/4` initial bar with two silent beats and explicitly changes to `4/4` on the following bar; this is not merely a half-rest visually mislabeled `4/4`.
+## 位置与符头
 
-Beam rules: 8ths have one beam, 16ths two beams; beam groups are anchored to a quarter-note beat. The original bug produced one beam for dense 16th-note groups because the cross-head closing macro had the wrong primitive. The current script defines a proper terminal cross-head note.
+下表由 `configs/instruments.yaml` 与 `configs/drum-maps/gm.yaml` 生成。位置按高音谱号理解，
+“上加一间”指第五线与上加一线之间，“下加一间”指第一线与下加一线之间。字母含义见 [drum-maps.md](drum-maps.md)。
 
-**Known limits**: introductory 2/4 then 4/4 (otherwise 4/4), 8th/16th quantization, silent pickup only, manually configured drum map. Non-quantized material, rolls, flams, non-GM percussion and odd meters require human review or converter extension. Velocity remains in the original MIDI; notation does not claim to preserve every performance nuance. No tool can infer right/left sticking from MIDI alone.
+主要的日式位置：底鼓第一间、军鼓第三间、嗵鼓从第五线往下排、踩镲上加一间、吊镲（クラッシュ）上加一线、
+踩镲踏板下加一间（叉形符头、符干朝下）。位置以 PAS / Weinberg 鼓谱指南为基础，并保留了这些日式位置。
+
+### 鼓组
+
+| 乐器 ID | 凡例名 | 缩写 | 声部 | 位置 | 符头 | 记号 | GM 音符 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `kick` | バスドラム | BD | 脚 | 第一间（`f`） | 实心椭圆 |  | 36 |
+| `kick-2` | バスドラム2 | BD2 | 脚 | 第一线（`e`） | 实心椭圆 |  | 35 |
+| `hihat-pedal` | ハイハット（ペダル） | HHp | 脚 | 下加一间（`d`） | 叉 |  | 44 |
+| `hihat-foot-splash` | ハイハット（フットスプラッシュ） | HHs | 脚 | 下加一间（`d`） | 叉 | ○ | — |
+| `snare` | スネア | SD | 手 | 第三间（`j`） | 实心椭圆 |  | 38, 40 |
+| `side-stick` | サイドスティック | SS | 手 | 第三间（`j`） | 叉 |  | 37 |
+| `hand-clap` | ハンドクラップ | CL | 手 | 第三间（`j`） | 三角 |  | 39 |
+| `tom-high` | ハイタム | T1 | 手 | 第五线（`m`） | 实心椭圆 |  | 50 |
+| `tom-high-mid` | ハイミッドタム | T2 | 手 | 第四间（`l`） | 实心椭圆 |  | 48 |
+| `tom-low-mid` | ローミッドタム | T3 | 手 | 第四线（`k`） | 实心椭圆 |  | 47 |
+| `tom-low` | ロータム | T4 | 手 | 第三线（`i`） | 实心椭圆 |  | 45 |
+| `tom-floor-high` | フロアタム | FT | 手 | 第二间（`h`） | 实心椭圆 |  | 43 |
+| `tom-floor-low` | ロー・フロアタム | FT2 | 手 | 第二线（`g`） | 实心椭圆 |  | 41 |
+| `hihat-closed` | ハイハット（クローズ） | HH | 手 | 上加一间（`n`） | 叉 |  | 42 |
+| `hihat-open` | ハイハット（オープン） | HHo | 手 | 上加一间（`n`） | 叉 | ○ | 46 |
+| `hihat-half-open` | ハイハット（ハーフオープン） | HHh | 手 | 上加一间（`n`） | 叉 | ⊖ | — |
+| `crash` | クラッシュ | CC | 手 | 上加一线（`o`） | 叉 |  | 49 |
+| `crash-2` | クラッシュ2 | CC2 | 手 | 上加二线（`q`） | 叉 |  | 57 |
+| `splash` | スプラッシュ | SP | 手 | 上加二间（`p`） | 叉 |  | 55 |
+| `china` | チャイナ | CH | 手 | 上加二线（`q`） | 圈叉 |  | 52 |
+| `ride` | ライド | RC | 手 | 第五线（`m`） | 叉 |  | 51 |
+| `ride-bell` | ライド（カップ） | RB | 手 | 第五线（`m`） | 空心菱形 |  | 53 |
+| `ride-2` | ライド2 | RC2 | 手 | 第四线（`k`） | 叉 |  | 59 |
+
+### 辅助打击乐与其他
+
+| 乐器 ID | 凡例名 | 缩写 | 声部 | 位置 | 符头 | 记号 | GM 音符 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `tambourine` | タンバリン | TB | 手 | 第四间（`l`） | 空心菱形 |  | 54 |
+| `cowbell` | カウベル | CB | 手 | 第四间（`l`） | 三角 |  | 56 |
+| `vibraslap` | ビブラスラップ | VS | 手 | 第二间（`h`） | 空心菱形 |  | 58 |
+| `bongo-high` | ハイボンゴ | BGh | 手 | 第四间（`l`） | 十字 |  | 60 |
+| `bongo-low` | ローボンゴ | BGl | 手 | 第四线（`k`） | 十字 |  | 61 |
+| `conga-high-mute` | ハイコンガ（ミュート） | CGm | 手 | 第四线（`k`） | 实心菱形 | ＋ | 62 |
+| `conga-high-open` | ハイコンガ（オープン） | CGo | 手 | 第四线（`k`） | 实心菱形 | ○ | 63 |
+| `conga-low` | ローコンガ | CGl | 手 | 第三线（`i`） | 实心菱形 |  | 64 |
+| `timbale-high` | ハイティンバレス | TIh | 手 | 第五线（`m`） | 三角 |  | 65 |
+| `timbale-low` | ローティンバレス | TIl | 手 | 第四线（`k`） | 三角 |  | 66 |
+| `agogo-high` | ハイアゴゴ | AGh | 手 | 上加一线（`o`） | 三角 |  | 67 |
+| `agogo-low` | ローアゴゴ | AGl | 手 | 上加一间（`n`） | 三角 |  | 68 |
+| `cabasa` | カバサ | CA | 手 | 第三线（`i`） | 叉 |  | 69 |
+| `maracas` | マラカス | MA | 手 | 第二间（`h`） | 实心菱形 |  | 70 |
+| `shaker` | シェイカー | SH | 手 | 第二线（`g`） | 实心菱形 |  | 82 |
+| `whistle-short` | ホイッスル（ショート） | WSs | 手 | 上加二间（`p`） | 空心菱形 |  | 71 |
+| `whistle-long` | ホイッスル（ロング） | WSl | 手 | 上加二线（`q`） | 空心菱形 |  | 72 |
+| `guiro-short` | ギロ（ショート） | GUs | 手 | 第二间（`h`） | 十字 |  | 73 |
+| `guiro-long` | ギロ（ロング） | GUl | 手 | 第二线（`g`） | 十字 |  | 74 |
+| `claves` | クラベス | CV | 手 | 第三间（`j`） | 实心菱形 |  | 75 |
+| `woodblock-high` | ハイウッドブロック | WBh | 手 | 上加一间（`n`） | 十字 |  | 76 |
+| `woodblock-low` | ローウッドブロック | WBl | 手 | 第五线（`m`） | 十字 |  | 77 |
+| `cuica-mute` | クイーカ（ミュート） | CUm | 手 | 上加一线（`o`） | 空心菱形 | ＋ | 78 |
+| `cuica-open` | クイーカ（オープン） | CUo | 手 | 上加一线（`o`） | 空心菱形 | ○ | 79 |
+| `triangle-mute` | トライアングル（ミュート） | TRm | 手 | 上加二线（`q`） | 三角 | ＋ | 80 |
+| `triangle-open` | トライアングル（オープン） | TRo | 手 | 上加二线（`q`） | 三角 | ○ | 81 |
+| `jingle-bell` | ジングルベル | JB | 手 | 上加一间（`n`） | 空心菱形 |  | 83 |
+| `bell-tree` | ベルツリー | BT | 手 | 上加一线（`o`） | 实心菱形 |  | 84 |
+| `castanets` | カスタネット | CS | 手 | 第五线（`m`） | 实心菱形 |  | 85 |
+| `surdo-mute` | スルド（ミュート） | SUm | 手 | 第一线（`e`） | 实心椭圆 | ＋ | 86 |
+| `surdo-open` | スルド（オープン） | SUo | 手 | 第一线（`e`） | 实心椭圆 | ○ | 87 |
+| `high-q` | ハイQ | HQ | 手 | 第三线（`i`） | 十字 |  | 27 |
+| `slap` | スラップ | SL | 手 | 第三间（`j`） | 十字 |  | 28 |
+| `scratch-push` | スクラッチ（プッシュ） | SCp | 手 | 第二线（`g`） | 三角 |  | 29 |
+| `scratch-pull` | スクラッチ（プル） | SCl | 手 | 第二线（`g`） | 空心菱形 |  | 30 |
+| `sticks` | スティック | ST | 手 | 上加二间（`p`） | 十字 |  | 31 |
+| `square-click` | スクエアクリック | SQ | 手 | 上加一线（`o`） | 十字 |  | 32 |
+| `metronome-click` | メトロノーム（クリック） | MC | 手 | 上加二线（`q`） | 十字 |  | 33 |
+| `metronome-bell` | メトロノーム（ベル） | MB | 手 | 上加三间（`r`） | 十字 |  | 34 |
+
+符头的含义：鼓类用实心椭圆；镲和踩镲用叉；チャイナ用圈叉；ライド（カップ）用空心菱形；
+辅助打击乐用三角、十字、实心/空心菱形等与鼓组区分。
+
+## 开/闭记号
+
+| `mark` | PDF | MusicXML |
+| --- | --- | --- |
+| `open` | 小圆圈 ○ | `technical/open` |
+| `half-open` | ⊖ | `technical/half-muted` |
+| `closed` | ＋ | `technical/stopped` |
+
+记号的位置相对于**实际符头**计算：手部在符头上方 3 个位置（一个半线间），脚部在符头下方 3 个位置，
+不会因为乐器位置不同而错位。例如开踩镲（上加一间）的 ○ 印在它自己的叉形符头正上方。
+
+## 时值
+
+鼓谱只记击打时刻，不表达 MIDI 中的音长。每个音的时值这样推断：
+
+- 一个音持续到同一声部的下一个音，但不超过所在拍的结尾，所以最长是四分音符；
+- 直拍中可用的时值：四分、附点 8 分、8 分、16 分；
+- 一拍中剩下的部分用休止符补齐，保证每个声部每一拍、每一小节的时值都对得上。
+
+例如脚部只在第 1 拍踩底鼓：印一个四分音符，之后是休止（PDF 中见“休止符”的规则）。
+
+## 横梁
+
+- 横梁按拍分组，**从不跨拍**。
+- 每一拍中，从第一个音开始、到遇到休止符为止的一串音符用一条主横梁连起来；拍内休止符之后的音单独印符尾。
+- 8 分一条横梁，16 分两条。相邻的 16 分音符共用第二条横梁；横梁组中孤立的 16 分音符用短横梁（hook）：
+  在组首时朝右，否则朝左（例如“附点 8 分 + 16 分”、“16 分 + 8 分 + 16 分”）。
+- 一拍中只有一个音时不连横梁，8 分 / 16 分印符尾。
+- 横梁的高度取整组最外侧的符头，符干不会穿过和弦中的符头。
+
+## 三连音与六连音
+
+- 每一拍独立判断是否记成三连音（规则见 [metadata.md](metadata.md) 的“量化”）。三连音只在被判定的那一拍内生效。
+- 只使用 8 分三连音位置的拍印数字 **3**（3:2）；用到 16 分六连音位置的拍印 **6**（6:4）。
+- 有横梁时数字印在横梁上，不加方括号；没有横梁时 PDF 只印数字，MusicXML 中加方括号。
+- 某声部在三连音拍里只有拍头一个音时，该声部照常印四分音符，不加三连音记号。
+
+## 装饰音
+
+- 同一个 MIDI 音符在主音之前很近（默认 32 分音符以内）且更弱的击打，记为主音前的装饰音：
+  PDF 为小号带斜线的 8 分装饰音，MusicXML 为 `<grace slash="yes"/>` 的 8 分音符。用于记 flam。
+- 装饰音不占时值。DAW 有时把装饰音、有时把主音放在网格上，量化时取两者中更贴近网格的那个作为主音的位置。
+
+## Ghost note 与重音
+
+仅在元数据设置了 `dynamics.ghost_below` / `dynamics.accent_above` 时启用，且只作用于手部：
+
+- ghost note：符头加括号（MusicXML `notehead parentheses="yes"`）；
+- 重音：符头上方加 `>`（MusicXML `articulations/accent`）。
+
+## 休止符
+
+- **MusicXML**：每个声部都有完整的休止符。拍中间的休止按 16 分 / 8 分 / 附点 8 分（附点只用在拍头）补齐；
+  整拍的休止用四分休止，4/4 小节中从第 1 拍或第 3 拍开始的两拍空白用二分休止；整小节空着的声部用整小节休止。
+- **PDF**：为保持谱面清爽，只在**两个声部都休止**的地方印休止符（按同样的规则，印在谱表中央）。
+  一个声部还在演奏时，另一个声部的休止不印。
+- 全空的弱起小节印一个与弱起长度相等的休止符。
+
+## 空小节与多小节休止
+
+- 单独一个空小节印整小节休止。
+- 连续两个及以上的空小节合并成多小节休止（PDF 为粗横杠加小节数，MusicXML 为 `multiple-rest`）。
+  遇到拍号变化或速度变化的小节时从那里重新开始计数；弱起小节不参与合并。
+
+## 拍号、弱起与速度
+
+- 第一小节印拍号；之后只在拍号变化的小节印新拍号。拍号变化只能落在小节线上。
+- 弱起小节编号为 0（MusicXML `implicit="yes"`），印出自己的拍号（例如 2/4），之后的小节从 1 开始编号。
+- 起始速度印在标题区的 `BPM` 中；MIDI 中之后的速度变化以 `♩ = 数值` 印在所在小节开头（变化落在小节中间时也标在该小节开头）。
+
+## 版面
+
+- A4 纵向；每行最多 4 小节，按内容宽度换行，最后一行较短时不拉伸；曲末印终止线。
+- 每行开头印小节号。
+- 第一页顶部为标题区和凡例；续页顶部印 `曲名　アーティスト　ドラム譜`；每页底部印页码 `n / N`。
+
+## 凡例
+
+- 印在第一页标题区下方（元数据 `legend: false` 可关闭）。
+- 只列本曲**实际用到**的乐器：先手后脚，各自从高到低排列。
+- 每项是一小段谱表上的符头（含开/闭记号），下面是缩写和日文名（可复制文字）。
+- 位置、符头、记号、声部都相同的乐器在谱面上无法区分，凡例合并为一项（见 [drum-maps.md](drum-maps.md)）。
+
+## 不做的事
+
+- 不记滚奏（roll）、震音（tremolo）记号；不记左右手顺序（sticking），MIDI 中没有这个信息。
+- 不支持 32 分音符、五连音等其他连音和复合拍（6/8、12/8）；遇到时报错，而不是近似处理。
+- 辅助打击乐不另开谱表。

@@ -1,0 +1,142 @@
+# 曲目元数据（metadata.yaml）
+
+每首曲目一个 `scores/<slug>/metadata.yaml`，由 `scripts/build_score.py --metadata` 读入。
+新曲目请复制 [templates/metadata.yaml](../templates/metadata.yaml)。
+
+- 顶层只允许下表列出的字段，出现其他字段会直接报错（防止拼错字段名后被悄悄忽略）。
+- 所有字段都可省略；省略时使用“默认”一列的值。
+- `midi`、`quantize`、`dynamics` 内部的未知子字段不会报错，但也不起作用，请注意拼写。
+
+## 署名与文字
+
+这些字段只影响标题区、页眉和 MusicXML 的署名，不影响记谱。值按原样输出（可以写日文）。
+
+| 字段 | 类型 | 默认 | 用途 | 示例 |
+| --- | --- | --- | --- | --- |
+| `title` | 字符串 | `Untitled` | 曲名：PDF 标题、续页页眉、PDF 文档标题，MusicXML `work-title` | `命に嫌われている。` |
+| `subtitle` | 字符串 | 无 | 曲名下的一行；MusicXML `movement-title` | `Self-cover ver.` |
+| `artist` | 字符串 | 无 | 艺人：标题区、续页页眉；MusicXML 第一页右上角的署名 | `カンザキイオリ` |
+| `album` | 字符串 | 无 | 专辑：印成 `『…』` 跟在艺人后面 | `不器用な男` |
+| `lyricist` | 字符串 | 无 | 作词（标签 `作詞`） | `カンザキイオリ` |
+| `composer` | 字符串 | 无 | 作曲（标签 `作曲`） | `カンザキイオリ` |
+| `vocal` | 字符串 | 无 | 演唱（标签 `歌`） | `カンザキイオリ（セルフカバー）` |
+| `transcriber` | 字符串 | 无 | 鼓谱采谱（标签 `ドラム採譜`）；MusicXML 第一页左上角的署名 | `音宮` |
+| `arranger` | 字符串 | 无 | 鼓编曲（标签 `ドラム編曲`） | `音宮` |
+| `note` | 字符串 | 无 | 备注（标签 `備考`），例如说明含采谱者的再创作 | `本譜には採譜者による再構成・創作を含みます。` |
+| `copyright` | 字符串 | 无 | 印在第一页底部；MusicXML `rights` | `© 2026 …` |
+| `credits` | 映射 | 无 | 改写职务标签，见下文 | `{arranger: アレンジ}` |
+| `legend` | 布尔 | `true` | 是否在第一页印凡例 | `false` |
+| `slug` | 字符串 | 无 | 仅作记录（与目录名相同），程序不使用 | `inochi-ni-kirawareteiru` |
+
+MusicXML 中：`composer`、`lyricist`、`arranger` 写成 `creator`；`artist`、`album`、`vocal`、`transcriber`、`note`
+写成同名的 `miscellaneous-field`。PDF 文档属性：标题为 `<title> ドラム譜`，作者为 `transcriber` 与 `arranger`
+（相同时只写一次），主题为 `artist / album`。
+
+### 标题区怎样拼出来
+
+第一页标题区从上到下：
+
+1. `title`（大号粗体）
+2. `subtitle`
+3. `artist　『album』`
+4. 歌曲署名：按 `lyricist`、`composer`、`vocal` 的顺序
+5. 鼓谱署名：按 `transcriber`、`arranger` 的顺序
+6. `備考：note`
+7. `BPM <速度>　拍子 <拍号序列>　上声部（符尾上）＝手　下声部（符尾下）＝足`
+8. 凡例（`legend: false` 时省略）
+
+第 4、5 行中，**值完全相同**（去掉首尾空格后逐字比较）的职务合并成一个标签，用 `・` 连接，不同的人之间用全角空格分隔：
+
+| 元数据 | 印出的行 |
+| --- | --- |
+| `lyricist: A`、`composer: A`、`vocal: B` | `作詞・作曲：A　歌：B` |
+| `lyricist: A`、`composer: B` | `作詞：A　作曲：B` |
+| `transcriber: C`、`arranger: C` | `ドラム採譜・編曲：C` |
+| `transcriber: C`、`arranger: D` | `ドラム採譜：C　ドラム編曲：D` |
+
+合并时，如果第一个标签以 `ドラム` 开头，后面标签开头重复的 `ドラム` 会省略，所以是 `ドラム採譜・編曲` 而不是
+`ドラム採譜・ドラム編曲`。人名写法稍有不同（例如一个带「（セルフカバー）」一个不带）就不会合并。
+
+第 7 行的拍号序列列出依次出现的不同拍号，弱起小节标 `（弱起）`，例如 `2/4（弱起）→ 4/4`；超过 4 段时只列前 3 段并加 `…`。
+
+### credits：改写标签
+
+`credits` 的键是职务名，值是要印的标签。可改的职务：`lyricist`、`composer`、`vocal`、`transcriber`、`arranger`、`note`。
+其他键被忽略。
+
+```yaml
+credits:
+  vocal: ボーカル        # 「歌：…」改成「ボーカル：…」
+  arranger: アレンジ     # 「ドラム編曲：…」改成「アレンジ：…」
+```
+
+## 鼓映射与选轨
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `drum_map` | 字符串 | `gm` | 内置映射名（`gm`、`fpc-default`），或映射 YAML 的路径。相对路径先相对于元数据文件所在目录查找，找不到再相对于当前目录。命令行 `--drum-map` 优先 |
+| `note_map` | 映射 | 无 | 在 `drum_map` 之上逐个改写音符：`MIDI 音符号: 乐器`。写法见 [drum-maps.md](drum-maps.md) |
+| `midi.tracks` | 列表或单个值 | 自动 | 只用这些轨道。字符串＝轨道名包含该文字（不区分大小写）；整数＝轨道序号（从 0 开始，第 0 轨通常是速度轨）。命令行 `--track`（只能按名称）优先 |
+| `midi.channels` | 列表或单个整数 | 自动 | 只用这些 MIDI 通道，按 1–16 编号（GM 鼓是 10，FPC 直接导出是 1）。命令行 `--channel` 优先 |
+
+`tracks` 和 `channels` 同时给出时，两个条件都要满足。都不给时自动选择：文件里只有一个含音符的轨道/通道就用它；
+否则用所有第 10 通道；否则用轨道名含 `fpc`、`drum`、`perc`、`kit`、`ドラム`、`鼓` 的轨道；仍无法判断就报错并列出各轨道。
+
+```yaml
+drum_map: fpc-default
+note_map:
+  40: hand-clap          # 这个 FPC 套件把拍手放在 40 号 pad 上
+midi:
+  tracks: [FPC]          # 或 [1]（按序号），或 channels: [10]
+```
+
+## 量化
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `quantize.subdivision` | 整数 | `4` | 直拍网格：`4`＝16 分音符，`2`＝8 分音符。只允许这两个值 |
+| `quantize.tuplets` | 字符串 | `auto` | `auto`：逐拍判断是否记成三连音；`off`：从不记三连音（偏离直拍网格超过 1/12 拍就报错） |
+| `quantize.flam_window` | 数 | `1/8` | 装饰音窗口，单位为四分音符（`1/8` 即 32 分音符）。可写 `1/16`、`0.125` 等；`0` 关闭装饰音识别 |
+
+逐拍判断规则（每一拍单独决定）：
+
+- 该拍所有音离直拍网格都不超过 1/24 拍：按直拍记。
+- 否则，`tuplets: auto` 且三连音网格的最大偏差不到直拍的一半、且不超过 1/12 拍：记成三连音
+  （`subdivision: 4` 时网格为 1/6 拍，能记三连音和 16 分六连音；`subdivision: 2` 时网格为 1/3 拍）。
+- 否则，直拍偏差不超过 1/12 拍：按直拍记并给出提示。
+- 都不满足：报错，指出是从乐谱起点数第几拍。
+
+装饰音与重复触发：同一个 MIDI 音符相邻两次击打间隔不超过 `flam_window` 的，归为一组；组里力度最大的是主音，
+在它之前且更弱的记为装饰音，其余（同样强或在主音之后）作为重复触发合并，数量会在提示里给出。
+不同音符之间不做装饰音识别。
+
+## 拍号、速度、弱起
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `time_signature` | 字符串 `"n/4"` | 无 | MIDI 没有拍号事件时使用。MIDI 有拍号事件时，它必须与 MIDI 的第一个拍号相同，否则报错；之后的拍号变化总是取自 MIDI。都没有时按 4/4 并提示。只支持 1/4–12/4 |
+| `tempo_bpm` | 数 | MIDI 第一个速度，没有则 120 | 标题区 `BPM` 与 MusicXML 第一小节的速度。范围 10–400。与 MIDI 不同时给出提示，谱面按元数据。MIDI 中后续的速度变化仍会印出 |
+| `pickup_beats` | 整数 | `0` | 弱起小节的拍数（四分音符）。弱起小节编号为 0，印出自己的拍号（如 `2/4`），可以有音符 |
+| `source_leading_beats` | 整数 | 等于 `pickup_beats` | 源 MIDI 中第 1 小节（弱起之后第一个完整小节）开始的位置，以拍（四分音符）计。要求 `0 ≤ pickup_beats ≤ source_leading_beats` |
+
+谱面从源 MIDI 的 `source_leading_beats − pickup_beats` 拍处开始（之前的部分舍去），落在舍去部分里的音符会报错。示例：源 MIDI 开头有一整小节（4 拍）
+空白，希望谱面只保留 2 拍空白、印成 2/4 弱起，写 `source_leading_beats: 4`、`pickup_beats: 2`。
+弱起小节之后的小节线按 MIDI 拍号排；MIDI 的拍号变化必须正好落在这些小节线上，否则报错。
+
+## 力度
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `dynamics.ghost_below` | 整数 | 无（不启用） | 手部力度**小于**该值的音记为 ghost note：PDF 符头加括号，MusicXML `notehead parentheses="yes"` |
+| `dynamics.accent_above` | 整数 | 无（不启用） | 手部力度**大于**该值的音加重音记号 `>`（MusicXML `accent`） |
+
+脚部（底鼓、踩镲踏板）不做 ghost / accent 标记。
+
+## 旧字段
+
+早期元数据中的字段仍可读，但新文件请用新写法：
+
+| 旧字段 | 新写法 | 说明 |
+| --- | --- | --- |
+| `beats`、`beat_type` | `time_signature: "4/4"` | 只写其中一个时另一个按 4；同时有 `time_signature` 时以它为准 |
+| `quantize_divisions_per_beat` | `quantize.subdivision` | 同时存在时以 `quantize.subdivision` 为准 |
