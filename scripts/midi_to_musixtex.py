@@ -600,14 +600,19 @@ def plan_systems(units: list[MeasureUnit], widths: list[float], *,
 def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
                         line_width: float = DEFAULT_LINE_WIDTH,
                         max_bars_per_line: int = 4,
-                        no_simile_bars: set[int] | frozenset[int] = frozenset()
+                        no_simile_bars: set[int] | frozenset[int] = frozenset(),
+                        system_spacing: float | None = None
                         ) -> tuple[str, list[list[MeasureUnit]]]:
     """Full MusiXTeX document plus the exact list of ``MeasureUnit`` objects per system.
 
     ``header_space`` (pt) is left blank above the first system for the XeLaTeX title block;
     ``line_width`` is the elemskip budget per system; ``no_simile_bars`` lists 0-based bar
-    indices that must be engraved in full (e.g. the first bar of a new PDF page).
+    indices that must be engraved in full (e.g. the first bar of a new PDF page);
+    ``system_spacing`` scales vertical spacing between systems (defaults to ``score.settings.system_spacing``).
     """
+    spacing_scale = score.settings.system_spacing if system_spacing is None else float(system_spacing)
+    if not 0.7 <= spacing_scale <= 2.5:
+        raise ScoreError(f'notation.system_spacing must be between 0.7 and 2.5, got {spacing_scale:g}')
     bars = score.bars
     first = bars[0]
     lines = [PREAMBLE.rstrip('\n'),
@@ -617,6 +622,14 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
         lines.append(r'\startbarno=0')
     if header_space > 0:
         lines.append(r'\hbox{}\vskip' + f'{header_space:.1f}' + 'pt')
+    if abs(spacing_scale - 1.0) > 1e-6:
+        marg = 3.0 * spacing_scale
+        parskip = max(0.0, (spacing_scale - 1.0) * 6.0)
+        lines += [
+            rf'\stafftopmarg={marg:.2f}\Interligne',
+            rf'\staffbotmarg={marg:.2f}\Interligne',
+            rf'\parskip={parskip:.2f}\Interligne plus5\Interligne minus\Interligne',
+        ]
     lines.append(r'\startpiece')
 
     units = plan_units(bars, repeats=score.settings.repeats,
@@ -771,12 +784,14 @@ def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
 def convert(score: Transcription, *, header_space: float = 0.0,
             line_width: float = DEFAULT_LINE_WIDTH,
             max_bars_per_line: int = 4,
-            no_simile_bars: set[int] | frozenset[int] = frozenset()) -> str:
+            no_simile_bars: set[int] | frozenset[int] = frozenset(),
+            system_spacing: float | None = None) -> str:
     """Full MusiXTeX document.  ``header_space`` (pt) is left blank above the first system
     for the XeLaTeX title block; ``line_width`` is the elemskip budget per system."""
     tex, _systems = convert_with_layout(score, header_space=header_space, line_width=line_width,
                                         max_bars_per_line=max_bars_per_line,
-                                        no_simile_bars=no_simile_bars)
+                                        no_simile_bars=no_simile_bars,
+                                        system_spacing=system_spacing)
     return tex
 
 
@@ -827,11 +842,14 @@ def main(argv: list[str] | None = None) -> int:
                         help='repeat notation: simile (default), full (with |: ... :| and voltas), or off; overrides metadata')
     parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
                         help='eighth-note beaming in 4/4: beat (default) or half-bar; overrides metadata')
+    parser.add_argument('--system-spacing', type=str, default=None,
+                        help='vertical spacing scale between PDF systems, 0.7-2.5 (default: 1.1; 1.0 = compact MusiXTeX stock); overrides metadata')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
-                            cli={'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
+                            cli={'repeats': args.repeats, 'beam_eighths': args.beam_eighths,
+                                 'system_spacing': args.system_spacing})
     except ScoreError as exc:
         print(f'Error: {exc}', file=sys.stderr)
         return 2

@@ -211,6 +211,7 @@ class Settings:
     repeats: str = 'simile'         # off | simile | full
     repeat_counters: bool = False   # print 2, 3, 4... above runs of >=2 consecutive % bars
     beam_eighths: str = 'beat'      # beat | half-bar
+    system_spacing: float = 1.1     # vertical spacing scale between PDF systems (0.7-2.5; 1.0 = compact stock)
     sections: dict[int, str] = field(default_factory=dict)
     time_signature: tuple[int, int] | None = None
     tempo_bpm: float | None = None
@@ -244,7 +245,7 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     if not isinstance(midi, dict):
         raise ScoreError('Metadata midi must be a mapping (tracks / channels)')
     for key, allowed in (('midi', {'tracks', 'channels'}), ('quantize', {'subdivision', 'tuplets', 'flam_window'}),
-                         ('notation', {'repeats', 'repeat_counters', 'beam_eighths'}),
+                         ('notation', {'repeats', 'repeat_counters', 'beam_eighths', 'system_spacing'}),
                          ('dynamics', {'ghost_below', 'accent_above'}),
                          ('credits', {'lyricist', 'composer', 'vocal', 'arranger', 'transcriber', 'artist', 'album', 'note'})):
         value = meta.get(key)
@@ -281,7 +282,7 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     if notation is None:
         notation = {}
     if not isinstance(notation, dict):
-        raise ScoreError('Metadata notation must be a mapping (repeats / repeat_counters / beam_eighths)')
+        raise ScoreError('Metadata notation must be a mapping (repeats / repeat_counters / beam_eighths / system_spacing)')
     repeats = cli.get('repeats') if cli.get('repeats') is not None else notation.get('repeats', 'simile')
     s.repeats = 'off' if repeats is False else str(repeats)  # YAML reads a bare `off` as false
     if s.repeats not in ('off', 'simile', 'full'):
@@ -294,6 +295,30 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     if not isinstance(beam_eighths, str) or beam_eighths not in ('beat', 'half-bar'):
         raise ScoreError('notation.beam_eighths only supports beat or half-bar')
     s.beam_eighths = beam_eighths
+    if cli.get('system_spacing') is not None:
+        raw_spacing = cli['system_spacing']
+    elif 'system_spacing' in notation:
+        raw_spacing = notation['system_spacing']
+        if raw_spacing is None:
+            raise ScoreError('Metadata notation.system_spacing must be a number between 0.7 and 2.5, got None')
+    else:
+        raw_spacing = None
+    if raw_spacing is not None:
+        if isinstance(raw_spacing, bool) or not isinstance(raw_spacing, (int, float, str, Fraction)):
+            raise ScoreError(
+                f'Metadata notation.system_spacing must be a number between 0.7 and 2.5, got {ascii(raw_spacing)}'
+            )
+        try:
+            spacing_val = float(_fraction(raw_spacing, 'notation.system_spacing'))
+        except ScoreError:
+            raise ScoreError(
+                f'Metadata notation.system_spacing must be a number between 0.7 and 2.5, got {ascii(raw_spacing)}'
+            ) from None
+        if not 0.7 <= spacing_val <= 2.5:
+            raise ScoreError(
+                f'Metadata notation.system_spacing must be between 0.7 and 2.5, got {spacing_val:g}'
+            )
+        s.system_spacing = spacing_val
     raw_sections = meta.get('sections')
     if raw_sections is not None:
         if not isinstance(raw_sections, dict):

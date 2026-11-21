@@ -23,6 +23,7 @@ def test_settings_defaults():
     s = parse_settings({})
     assert (s.drum_map, s.subdivision, s.tuplets, s.time_signature) == ('gm', 4, 'auto', None)
     assert (s.repeats, s.repeat_counters, s.beam_eighths) == ('simile', False, 'beat')
+    assert s.system_spacing == pytest.approx(1.1)
     assert s.pickup_beats == 0 and s.source_leading_beats == 0
 
 

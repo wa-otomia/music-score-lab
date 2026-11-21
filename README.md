@@ -38,6 +38,7 @@ python3 scripts/build_score.py scores/inochi-ni-kirawareteiru/source.mid \
 | `--legend` / `--no-legend` | 1 ページ目の楽器凡例を印刷する／しない。指定がなければメタデータの `legend` に従い、メタデータにもなければ印刷しません |
 | `--repeats MODE` | 反復記号モード（`off`、`simile`、`full`）を指定します。メタデータの `notation.repeats` より優先されます（既定は `simile`） |
 | `--beam-eighths MODE` | 8 分音符の連桁モード（`beat`、`half-bar`）を指定します。メタデータの `notation.beam_eighths` より優先されます（既定は `beat`） |
+| `--system-spacing SCALE` | PDF の段間（システム間の縦間隔）の倍率（`0.7`–`2.5`）を指定します。メタデータの `notation.system_spacing` より優先されます（既定は `1.1`、`1.0` で標準の詰めた間隔。PDF のみ） |
 | `--work-dir DIR` | PDF の中間ファイル（TeX ソース、合成前の譜面ページ）を残します。原因調査に使います |
 | `--xsd PATH` | MusicXML 4.0 の `musicxml.xsd` のパス。環境変数 `MUSICXML_XSD` でも指定できます。指定すると schema 検証を追加で行います（lxml が必要） |
 
@@ -164,15 +165,15 @@ build/                         ローカルの出力先。.gitignore で無視�
 ## ステップごとのスクリプト
 
 日常的には `build_score.py` だけで十分です。問題を調べるときは、各ステップを個別に実行できます。変換スクリプトと検証スクリプトはどれも `--drum-map`、`--repeats`、`--beam-eighths` を受け付けます。`--track` と `--channel` を
-受け付けるのは `midi_to_musicxml.py`、`render_score.py`、`validate_score.py`、`build_score.py` だけです（`midi_to_musixtex.py` はメタデータでのみトラックを選びます）。
+受け付けるのは `midi_to_musicxml.py`、`render_score.py`、`validate_score.py`、`build_score.py` だけです（`midi_to_musixtex.py` はメタデータでのみトラックを選びます）。`--system-spacing` は PDF 用の `midi_to_musixtex.py`、`render_score.py`、`build_score.py` だけが受け付けます。
 `midi_to_musicxml.py`、`render_score.py`、`midi_to_musixtex.py` は変換だけを行い、終了コードは 0 または 2 です。`validate_score.py` の終了コードは上の表と同じで、
 入力ファイルが見つからない場合も 2 を返します。`retag_gm_channel10.py` は `source --out` だけを受け付け、エラー時は Python の例外がそのまま出て、上の 0/1/2 の区別はありません。
 
 ```bash
 python3 scripts/midi_to_musicxml.py MIDI --metadata META --out OUT.musicxml
-python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--legend|--no-legend] [--keep-tex OUT.tex] [--work-dir DIR]
+python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--legend|--no-legend] [--system-spacing SCALE] [--keep-tex OUT.tex] [--work-dir DIR]
 python3 scripts/validate_score.py MIDI --metadata META --musicxml OUT.musicxml --pdf OUT.pdf [--xsd XSD]
-python3 scripts/midi_to_musixtex.py MIDI --metadata META --out OUT.tex     # MusiXTeX ソースだけを見る
+python3 scripts/midi_to_musixtex.py MIDI --metadata META --out OUT.tex [--system-spacing SCALE]  # MusiXTeX ソースだけを見る
 python3 scripts/retag_gm_channel10.py source.mid --out build/gm-channel10.mid  # チャンネル 10 しか認識しないソフト向け
 python3 -m pytest -q tests
 ```

@@ -373,13 +373,16 @@ def main(argv: list[str] | None = None) -> int:
                         help='repeat notation: simile (default), full (with |: ... :| and voltas), or off; overrides metadata')
     parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
                         help='eighth-note beaming in 4/4: beat (default) or half-bar; overrides metadata')
+    parser.add_argument('--system-spacing', type=str, default=None,
+                        help='vertical spacing scale between PDF systems, 0.7-2.5 (default: 1.1; 1.0 = compact MusiXTeX stock); overrides metadata')
     parser.add_argument('--keep-tex', type=Path, help='also save the generated MusiXTeX source (for debugging)')
     parser.add_argument('--work-dir', type=Path, help='directory to keep intermediate files (default: a temp dir deleted afterwards)')
     args = parser.parse_args(argv)
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
                             cli={'tracks': args.track, 'channels': args.channel,
-                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
+                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths,
+                                 'system_spacing': args.system_spacing})
         if args.legend is not None:
             score.metadata['legend'] = args.legend
         if args.work_dir:

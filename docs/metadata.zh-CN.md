@@ -160,6 +160,7 @@ midi:
 | `notation.repeats` | 字符串 | `simile` | 反复记号的记谱模式。`simile`：启用 1 小节（`%`）和 2 小节（`//`）反复记号（默认）；`full`：在 `%` / `//` 的基础上，进一步将按乐句对齐的相邻反复乐句折叠为反复记号（`|: ... :|`）及一、二房子（`1.` / `2.`）；`off`：关闭所有反复记号，完整记出每个非空小节。不加引号的 `off` 会被 YAML 读成 false，同样按 `off` 处理。命令行 `--repeats` 优先 |
 | `notation.repeat_counters` | 布尔 | `false` | 当 1 小节 `%` 连续出现 2 小节及以上（即连续 3 个及以上相同小节）时，是否在每个 `%` 上方印出反复次数（`2`、`3`、`4`、…）。默认（`false`）不印，设为 `true` 时才印出。必须是 YAML 布尔值，写成带引号的字符串（如 `"true"`）会报错 |
 | `notation.beam_eighths` | 字符串 | `beat` | 8 分音符的横梁分组方式。`beat`：按拍分组，不跨拍（默认）；`half-bar`：在 4/4 的非弱起小节中，若前半小节（第 1–2 拍）或后半小节（第 3–4 拍）恰好为连续 4 个普通直拍 8 分音符，则用一条横梁连成一组（手、脚声部各自独立判断）。命令行 `--beam-eighths` 优先 |
+| `notation.system_spacing` | 数 | `1.1` | PDF 谱行（系统）之间的垂直间距倍率（`0.7`–`2.5`）。`1.0` 为 MusiXTeX 原生紧凑间距，小于 `1.0` 更紧，大于 `1.0` 更宽。仅影响 PDF 版面，不影响 MusicXML。命令行 `--system-spacing` 优先 |
 
 默认情况下，`%` 上方不印 `2`、`3`、`4`、… 的反复次数；仅在设置 `notation.repeat_counters: true` 时，才会在连续 2 小节及以上的 `%` 上方印出次数（孤立的单个 `%`，即仅连续 2 个相同小节，仍不印数字）。2 小节反复 `//` 的符号本身始终带有 `2`，不受 `repeat_counters` 影响。反复记号的判定规则、分页处理与横梁规则见 [notation-conventions.zh-CN.md](notation-conventions.zh-CN.md) 的“反复记号”和“横梁”。
 
@@ -168,6 +169,7 @@ notation:
   repeats: simile         # simile（默认）、full 或 off（命令行 --repeats 优先）
   repeat_counters: false  # 默认为 false；设为 true 时在连续 % 上方印出次数（2, 3, 4…）
   beam_eighths: beat      # beat（默认）或 half-bar（命令行 --beam-eighths 优先）
+  system_spacing: 1.1     # PDF 行距倍率（0.7–2.5，默认 1.1，1.0 为紧凑默认；命令行 --system-spacing 优先）
 ```
 
 ## 段落

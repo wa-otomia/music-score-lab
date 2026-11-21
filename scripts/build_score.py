@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
                         help='override notation.repeats in the metadata: full (repeat signs + similes), simile, or off')
     parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
                         help='override notation.beam_eighths in the metadata: beat or half-bar (4/4 only)')
+    parser.add_argument('--system-spacing', type=str, default=None,
+                        help='override notation.system_spacing in the metadata: vertical spacing scale between PDF systems, 0.7-2.5 (default: 1.1; 1.0 = compact MusiXTeX stock)')
     parser.add_argument('--no-pdf', action='store_true', help='generate MusicXML only (no TeX environment needed)')
     parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
                         help='print (--legend) or omit (--no-legend) the instrument legend; default follows the metadata legend, omitted if unset')
@@ -44,7 +46,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
                             cli={'tracks': args.track, 'channels': args.channel,
-                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
+                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths,
+                                 'system_spacing': args.system_spacing})
     except ScoreError as exc:
         print(f'Error: {exc}', file=sys.stderr)
         return 2

@@ -38,6 +38,7 @@ python3 scripts/build_score.py scores/inochi-ni-kirawareteiru/source.mid \
 | `--legend` / `--no-legend` | 印 / 不印第一页的乐器凡例；不指定时按元数据 `legend`，元数据也没写则不印 |
 | `--repeats MODE` | 指定反复记号模式（`off`、`simile`、`full`）；优先于元数据 `notation.repeats`（默认为 `simile`） |
 | `--beam-eighths MODE` | 指定 8 分音符横梁分组模式（`beat`、`half-bar`）；优先于元数据 `notation.beam_eighths`（默认为 `beat`） |
+| `--system-spacing SCALE` | 指定 PDF 谱行之间的垂直间距倍率（`0.7`–`2.5`）；优先于元数据 `notation.system_spacing`（默认为 `1.1`，`1.0` 为紧凑默认；仅影响 PDF） |
 | `--work-dir DIR` | 保留 PDF 中间文件（TeX 源码、未合成的谱页），便于排查 |
 | `--xsd PATH` | MusicXML 4.0 `musicxml.xsd` 路径；也可设环境变量 `MUSICXML_XSD`。提供时额外做 schema 校验（需要 lxml） |
 
@@ -164,15 +165,15 @@ build/                         本地输出目录，已被 .gitignore 忽略
 ## 分步脚本
 
 日常使用 `build_score.py` 即可。排查问题时可以单独运行各步骤。转换和校验脚本都接受 `--drum-map`、`--repeats` 与 `--beam-eighths`；`--track`、`--channel`
-只有 `midi_to_musicxml.py`、`render_score.py`、`validate_score.py`、`build_score.py` 接受（`midi_to_musixtex.py` 只按元数据选轨）。
+只有 `midi_to_musicxml.py`、`render_score.py`、`validate_score.py`、`build_score.py` 接受（`midi_to_musixtex.py` 只按元数据选轨）；`--system-spacing` 仅用于 PDF，由 `midi_to_musixtex.py`、`render_score.py` 和 `build_score.py` 接受。
 `midi_to_musicxml.py`、`render_score.py`、`midi_to_musixtex.py` 只做转换，退出码为 0 或 2；`validate_score.py` 的退出码同上表，
 找不到输入文件时也返回 2。`retag_gm_channel10.py` 只接受 `source --out`，出错时直接报 Python 异常，不按上面的 0/1/2 区分。
 
 ```bash
 python3 scripts/midi_to_musicxml.py MIDI --metadata META --out OUT.musicxml
-python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--legend|--no-legend] [--keep-tex OUT.tex] [--work-dir DIR]
+python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--legend|--no-legend] [--system-spacing SCALE] [--keep-tex OUT.tex] [--work-dir DIR]
 python3 scripts/validate_score.py MIDI --metadata META --musicxml OUT.musicxml --pdf OUT.pdf [--xsd XSD]
-python3 scripts/midi_to_musixtex.py MIDI --metadata META --out OUT.tex     # 只看 MusiXTeX 源码
+python3 scripts/midi_to_musixtex.py MIDI --metadata META --out OUT.tex [--system-spacing SCALE]  # 只看 MusiXTeX 源码
 python3 scripts/retag_gm_channel10.py source.mid --out build/gm-channel10.mid  # 给只认第 10 通道的软件用
 python3 -m pytest -q tests
 ```

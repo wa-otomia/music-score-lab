@@ -2,9 +2,12 @@ import re
 
 import pytest
 
-from conftest import HAVE_PDF_TOOLS, HH, HHO, KICK, RIDE, SNARE, build
+from conftest import HAVE_PDF_TOOLS, HH, HHO, KICK, RIDE, SNARE, build, make_midi
+import build_score
+import midi_to_musixtex
 from midi_to_musixtex import bar_number_pitch, convert, convert_with_layout, legend_entries, legend_tex
 import render_score
+from score_core import ScoreError
 from validate_score import validate_pdf
 
 FOUR_FOUR = {'sigs': [(0, 4, 4)]}
@@ -246,3 +249,110 @@ def test_pdf_mid_system_bar_numbers_validate_cleanly(tmp_path):
             assert r'\csimile{' in tex.split(r'\startpiece', 1)[1]
         else:
             assert r'\csimile{' not in tex.split(r'\startpiece', 1)[1]
+
+
+def test_system_spacing_tex_emission_and_cli(tmp_path):
+    score_def = build(tmp_path, _groove_a(0), **FOUR_FOUR)
+    tex_def = convert(score_def)
+    tex_def.encode('ascii')
+    pre_def = tex_def.split(r'\startpiece', 1)[0]
+    assert r'\stafftopmarg=3.30\Interligne' in pre_def
+    assert r'\staffbotmarg=3.30\Interligne' in pre_def
+    assert r'\parskip=0.60\Interligne plus5\Interligne minus\Interligne' in pre_def
+
+    # Stock 1.0 omits all three spacing macros verbatim.
+    score_stock = build(tmp_path, _groove_a(0), meta={'notation': {'system_spacing': 1.0}}, **FOUR_FOUR)
+    for tex_1 in (convert(score_stock), convert(score_def, system_spacing=1.0)):
+        pre_1 = tex_1.split(r'\startpiece', 1)[0]
+        assert r'\stafftopmarg' not in pre_1
+        assert r'\staffbotmarg' not in pre_1
+        assert r'\parskip' not in pre_1
+
+    # Tight (< 1.0) clamps \parskip base to 0.00\Interligne; loose (> 1.0) expands margins and \parskip.
+    pre_tight = convert(score_def, system_spacing=0.85).split(r'\startpiece', 1)[0]
+    assert r'\stafftopmarg=2.55\Interligne' in pre_tight
+    assert r'\staffbotmarg=2.55\Interligne' in pre_tight
+    assert r'\parskip=0.00\Interligne plus5\Interligne minus\Interligne' in pre_tight
+
+    pre_loose = convert(score_def, system_spacing=1.5).split(r'\startpiece', 1)[0]
+    assert r'\stafftopmarg=4.50\Interligne' in pre_loose
+    assert r'\staffbotmarg=4.50\Interligne' in pre_loose
+    assert r'\parskip=3.00\Interligne plus5\Interligne minus\Interligne' in pre_loose
+
+    with pytest.raises(ScoreError):
+        convert(score_def, system_spacing=3.0)
+
+    # CLI --system-spacing override on midi_to_musixtex and build_score.
+    midi = make_midi(tmp_path / 'sp.mid', _groove_a(0), **FOUR_FOUR)
+    meta = tmp_path / 'meta.yaml'
+    meta.write_text('title: Spacing CLI\nnotation:\n  system_spacing: 0.9\n', encoding='utf-8')
+
+    out_tex = tmp_path / 'sp.tex'
+    assert midi_to_musixtex.main([str(midi), '--metadata', str(meta), '--out', str(out_tex),
+                                  '--system-spacing', '1.5']) == 0
+    assert r'\stafftopmarg=4.50\Interligne' in out_tex.read_text(encoding='ascii')
+    assert midi_to_musixtex.main([str(midi), '--metadata', str(meta), '--out', str(out_tex),
+                                  '--system-spacing', '0.5']) == 2
+
+    out_dir = tmp_path / 'build-sp'
+    assert build_score.main([str(midi), '--metadata', str(meta), '--out-dir', str(out_dir),
+                             '--no-pdf', '--system-spacing', '1.4']) == 0
+    assert build_score.main([str(midi), '--metadata', str(meta), '--out-dir', str(out_dir),
+                             '--no-pdf', '--system-spacing', 'bad']) == 2
+
+
+@pytest.mark.skipif(not HAVE_PDF_TOOLS, reason='needs musixtex, etex, musixflx, dvipdfmx, xelatex, gs')
+def test_pdf_system_spacing_tight_vs_loose_and_cli(tmp_path):
+    import pymupdf
+
+    # 44 distinct-enough bars (~11 systems): 0.85 fits on 1 page while 1.5 expands spacing & spills to 2 pages.
+    hits: list[tuple] = []
+    for i in range(44):
+        fn = _groove_a if i % 2 == 0 else _groove_b
+        hits.extend(fn(4 * i))
+    midi = make_midi(tmp_path / 'sp44.mid', hits, **FOUR_FOUR)
+    meta = tmp_path / 'meta.yaml'
+    meta.write_text('title: System Spacing PDF Test\n', encoding='utf-8')
+
+    def measure_pdf(pdf_path):
+        gaps: list[float] = []
+        with pymupdf.open(pdf_path) as doc:
+            pages = len(doc)
+            for page in doc:
+                ys = sorted(set(round(d['rect'].y0, 2) for d in page.get_drawings()
+                                if d['rect'].width > 400 and d['rect'].height < 1.5))
+                groups: list[list[float]] = []
+                for y in ys:
+                    if not groups or y - groups[-1][-1] > 10.0:
+                        groups.append([y])
+                    else:
+                        groups[-1].append(y)
+                staves = [g for g in groups if len(g) >= 4]
+                for a, b in zip(staves, staves[1:]):
+                    gaps.append(b[0] - a[-1])
+        return pages, sum(gaps) / len(gaps)
+
+    pdf_tight = tmp_path / 'tight.pdf'
+    work_tight = tmp_path / 'work-tight'
+    assert render_score.main([str(midi), '--metadata', str(meta), '--out', str(pdf_tight),
+                              '--work-dir', str(work_tight), '--system-spacing', '0.85']) == 0
+    s_tight = build_score.build_score(midi, meta, cli={'system_spacing': '0.85'})
+    assert validate_pdf(s_tight, pdf_tight).startswith('PDF OK')
+
+    out_loose = tmp_path / 'build-loose'
+    work_loose = tmp_path / 'work-loose'
+    assert build_score.main([str(midi), '--metadata', str(meta), '--out-dir', str(out_loose),
+                             '--work-dir', str(work_loose), '--system-spacing', '1.5']) == 0
+    pdf_loose = out_loose / 'score.pdf'
+    s_loose = build_score.build_score(midi, meta, cli={'system_spacing': '1.5'})
+    assert validate_pdf(s_loose, pdf_loose).startswith('PDF OK')
+
+    for wdir in (work_tight, work_loose):
+        log = (wdir / 'score.log').read_text(errors='replace')
+        overfull = [float(x) for x in re.findall(r'Overfull \\hbox \(([\d.]+)pt too wide\)', log)]
+        assert not overfull or max(overfull) <= 4.0
+
+    pages_tight, gap_tight = measure_pdf(pdf_tight)
+    pages_loose, gap_loose = measure_pdf(pdf_loose)
+    assert pages_loose > pages_tight
+    assert gap_loose > gap_tight + 10.0

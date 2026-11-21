@@ -38,6 +38,7 @@ Common options:
 | `--legend` / `--no-legend` | Prints / omits the instrument legend on the first page. If neither is given, the metadata `legend` applies; if the metadata does not set it either, no legend is printed |
 | `--repeats MODE` | Sets repeat notation mode (`off`, `simile`, `full`); overrides `notation.repeats` in metadata (default: `simile`) |
 | `--beam-eighths MODE` | Sets 8th-note beaming mode (`beat`, `half-bar`); overrides `notation.beam_eighths` in metadata (default: `beat`) |
+| `--system-spacing SCALE` | Sets the PDF vertical spacing scale between systems (`0.7`–`2.5`); overrides `notation.system_spacing` in metadata (default: `1.1`, `1.0` = compact; PDF only) |
 | `--work-dir DIR` | Keeps the PDF intermediate files (TeX source, uncomposited score pages) for troubleshooting |
 | `--xsd PATH` | Path to the MusicXML 4.0 `musicxml.xsd`; the environment variable `MUSICXML_XSD` also works. When given, an additional schema validation is run (requires lxml) |
 
@@ -164,15 +165,15 @@ included in 『不器用な男』; ドラム採譜・編曲：音宮, including 
 ## Step-by-step scripts
 
 For everyday use, `build_score.py` is enough. To investigate a problem you can run the steps individually. The conversion and validation scripts all accept `--drum-map`, `--repeats` and `--beam-eighths`; `--track` and `--channel`
-are accepted only by `midi_to_musicxml.py`, `render_score.py`, `validate_score.py` and `build_score.py` (`midi_to_musixtex.py` selects tracks from the metadata only).
+are accepted only by `midi_to_musicxml.py`, `render_score.py`, `validate_score.py` and `build_score.py` (`midi_to_musixtex.py` selects tracks from the metadata only); `--system-spacing` (PDF layout only) is accepted by `midi_to_musixtex.py`, `render_score.py` and `build_score.py`.
 `midi_to_musicxml.py`, `render_score.py` and `midi_to_musixtex.py` only convert, with exit code 0 or 2; the exit codes of `validate_score.py` are as in the table above,
 and it also returns 2 when the input file is not found. `retag_gm_channel10.py` accepts only `source --out`; on error it raises a plain Python exception and does not distinguish 0/1/2 as above.
 
 ```bash
 python3 scripts/midi_to_musicxml.py MIDI --metadata META --out OUT.musicxml
-python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--legend|--no-legend] [--keep-tex OUT.tex] [--work-dir DIR]
+python3 scripts/render_score.py MIDI --metadata META --out OUT.pdf [--legend|--no-legend] [--system-spacing SCALE] [--keep-tex OUT.tex] [--work-dir DIR]
 python3 scripts/validate_score.py MIDI --metadata META --musicxml OUT.musicxml --pdf OUT.pdf [--xsd XSD]
-python3 scripts/midi_to_musixtex.py MIDI --metadata META --out OUT.tex     # view only the MusiXTeX source
+python3 scripts/midi_to_musixtex.py MIDI --metadata META --out OUT.tex [--system-spacing SCALE]  # view only the MusiXTeX source
 python3 scripts/retag_gm_channel10.py source.mid --out build/gm-channel10.mid  # for software that only recognizes channel 10
 python3 -m pytest -q tests
 ```

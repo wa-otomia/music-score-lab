@@ -204,6 +204,7 @@ Enabled only when the metadata sets `dynamics.ghost_below` / `dynamics.accent_ab
 - A4 portrait. Line breaks use phrase-aligned optimization: within the line width, the layout favors breaking cleanly at section boundaries (`sections`) and repeat boundaries (`|:` / `:|` / end of `2.`), and prefers 4-bar phrases (4-bar boundaries counted from bar 1 or the latest section start); a multi-measure rest counts as 1 bar and a 2-bar simile (`//`) counts as 2 bars and is never split across a line break.
 - When a pickup bar (bar 0) is present, the first system keeps bar 0 together with bars 1–4 (up to 5 bars) whenever width allows. Likewise, the final system may hold up to 5 bars to avoid stretching a lone bar across an entire line. A final barline is printed at the end of the piece.
 - In the PDF, a boxed bar number is printed at the start of every system, and a small bar number is printed at the start of every mid-system bar (using sequential engraved bar numbers; omitted on the interior middle barline of a 2-bar `//` repeat where `2` sits).
+- Vertical spacing between systems in the PDF defaults to `1.1` (slightly roomier than MusiXTeX's compact `1.0`) and can be adjusted with `notation.system_spacing` (`0.7`–`2.5`) or the command-line `--system-spacing` (affects PDF layout only, not MusicXML).
 - The top of the first page is the title block (followed by the legend when the legend is enabled); continuation pages have `<song title>　<artist>　ドラム譜` at the top; every page has its page number `n / N` at the bottom.
 
 ## Legend

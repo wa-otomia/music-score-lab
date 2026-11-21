@@ -153,6 +153,29 @@ def test_settings_notation_defaults():
     s = parse_settings({})
     assert s.repeats == 'simile'
     assert s.repeat_counters is False
+    assert s.system_spacing == pytest.approx(1.1)
+
+
+def test_settings_notation_system_spacing(tmp_path):
+    for raw, expected in ((0.7, 0.7), (1.0, 1.0), (1.1, 1.1), (1.5, 1.5), (2.5, 2.5),
+                          (2, 2.0), ('1.25', 1.25), ('6/5', 1.2)):
+        assert parse_settings({'notation': {'system_spacing': raw}}).system_spacing == pytest.approx(expected)
+
+    for bad in (True, False, None, 'wide', '広い', '', 0.5, 0.69, 2.51, 3.0, -1, [], {}):
+        with pytest.raises(ScoreError) as exc_info:
+            parse_settings({'notation': {'system_spacing': bad}})
+        msg = str(exc_info.value)
+        assert msg.isascii(), f'Error message must be ASCII only: {msg!r}'
+        assert 'notation.system_spacing' in msg and '0.7' in msg and '2.5' in msg
+
+    assert parse_settings({'notation': {'system_spacing': 0.9}}, cli={'system_spacing': '1.5'}).system_spacing == pytest.approx(1.5)
+    assert parse_settings({'notation': {'system_spacing': 0.9}}, cli={'system_spacing': None}).system_spacing == pytest.approx(0.9)
+    with pytest.raises(ScoreError):
+        parse_settings({}, cli={'system_spacing': '3.0'})
+
+    score = build(tmp_path, _sequence([_bar_a]), meta={'notation': {'system_spacing': 0.9}},
+                  cli={'system_spacing': '1.4'}, **FOUR_FOUR)
+    assert score.settings.system_spacing == pytest.approx(1.4)
 
 
 def test_settings_notation_repeats_modes():
