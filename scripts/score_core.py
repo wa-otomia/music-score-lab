@@ -194,7 +194,7 @@ def load_drum_map(ref: str | Path, instruments: dict[str, Instrument] | None = N
 TEXT_FIELDS = ('title', 'subtitle', 'artist', 'album', 'composer', 'lyricist', 'arranger',
                'vocal', 'transcriber', 'note', 'copyright')
 METADATA_KEYS = set(TEXT_FIELDS) | {
-    'slug', 'drum_map', 'note_map', 'midi', 'quantize', 'time_signature', 'tempo_bpm',
+    'slug', 'drum_map', 'note_map', 'midi', 'quantize', 'notation', 'sections', 'time_signature', 'tempo_bpm',
     'pickup_beats', 'source_leading_beats', 'dynamics', 'legend', 'credits',
     # legacy keys kept for older metadata files
     'beats', 'beat_type', 'quantize_divisions_per_beat'}
@@ -208,6 +208,10 @@ class Settings:
     channels: list | None = None    # 1-based MIDI channels
     subdivision: int = 4            # straight grid per quarter: 2 (8ths) or 4 (16ths)
     tuplets: str = 'auto'           # auto | off
+    repeats: str = 'simile'         # off | simile
+    repeat_counters: bool = True    # print 2, 3, 4... above runs of >=2 consecutive % bars
+    beam_eighths: str = 'beat'      # beat | half-bar
+    sections: dict[int, str] = field(default_factory=dict)
     time_signature: tuple[int, int] | None = None
     tempo_bpm: float | None = None
     source_leading_beats: Fraction = Fraction(0)
@@ -240,6 +244,7 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     if not isinstance(midi, dict):
         raise ScoreError('Metadata midi must be a mapping (tracks / channels)')
     for key, allowed in (('midi', {'tracks', 'channels'}), ('quantize', {'subdivision', 'tuplets', 'flam_window'}),
+                         ('notation', {'repeats', 'repeat_counters', 'beam_eighths'}),
                          ('dynamics', {'ghost_below', 'accent_above'}),
                          ('credits', {'lyricist', 'composer', 'vocal', 'arranger', 'transcriber', 'artist', 'album', 'note'})):
         value = meta.get(key)
@@ -272,6 +277,54 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
         raise ScoreError('quantize.tuplets only supports auto or off')
     if 'flam_window' in quant:
         s.flam_window = _fraction(quant['flam_window'], 'quantize.flam_window')
+    notation = meta.get('notation')
+    if notation is None:
+        notation = {}
+    if not isinstance(notation, dict):
+        raise ScoreError('Metadata notation must be a mapping (repeats / repeat_counters / beam_eighths)')
+    repeats = cli.get('repeats') if cli.get('repeats') is not None else notation.get('repeats', 'simile')
+    s.repeats = 'off' if repeats is False else str(repeats)  # YAML reads a bare `off` as false
+    if s.repeats not in ('off', 'simile'):
+        raise ScoreError('notation.repeats only supports off or simile')
+    if 'repeat_counters' in notation:
+        if not isinstance(notation['repeat_counters'], bool):
+            raise ScoreError('Metadata notation.repeat_counters must be true or false (without quotes)')
+        s.repeat_counters = notation['repeat_counters']
+    beam_eighths = cli.get('beam_eighths') if cli.get('beam_eighths') is not None else notation.get('beam_eighths', 'beat')
+    if not isinstance(beam_eighths, str) or beam_eighths not in ('beat', 'half-bar'):
+        raise ScoreError('notation.beam_eighths only supports beat or half-bar')
+    s.beam_eighths = beam_eighths
+    raw_sections = meta.get('sections')
+    if raw_sections is not None:
+        if not isinstance(raw_sections, dict):
+            raise ScoreError('Metadata sections must be a mapping of "bar_number: label"')
+        sections: dict[int, str] = {}
+        for key, raw_label in raw_sections.items():
+            if isinstance(key, bool):
+                raise ScoreError(f'Metadata sections bar number must be an integer >= 1, got {ascii(key)}')
+            if isinstance(key, int):
+                bar_no = key
+            elif isinstance(key, str) and re.fullmatch(r'\s*-?[0-9]+\s*', key):
+                bar_no = int(key)
+            else:
+                raise ScoreError(f'Metadata sections bar number must be an integer >= 1, got {ascii(key)}')
+            if bar_no < 1:
+                raise ScoreError(f'Metadata sections bar number must be >= 1, got {bar_no}')
+            if bar_no in sections:
+                raise ScoreError(f'Metadata sections has duplicate entry for bar {bar_no}')
+            if not isinstance(raw_label, str):
+                raise ScoreError(f'Metadata sections[{bar_no}] must be a non-empty ASCII string, got {ascii(raw_label)}')
+            label = raw_label.strip()
+            if not label:
+                raise ScoreError(f'Metadata sections[{bar_no}] must be a non-empty string')
+            if not all(32 <= ord(c) <= 126 for c in label):
+                raise ScoreError(
+                    f'Metadata sections[{bar_no}]: rehearsal marks must use printable ASCII characters only '
+                    '(e.g. A, B, Intro, Chorus)')
+            if len(label) > 24:
+                raise ScoreError(f'Metadata sections[{bar_no}] is too long ({len(label)} chars; maximum is 24)')
+            sections[bar_no] = label
+        s.sections = dict(sorted(sections.items()))
     ts = meta.get('time_signature')
     if ts is None and ('beats' in meta or 'beat_type' in meta):
         ts = f"{meta.get('beats', 4)}/{meta.get('beat_type', 4)}"
@@ -455,6 +508,7 @@ class Bar:
     triplet_beats: dict[int, int] = field(default_factory=dict)      # beat index -> 3 or 6
     show_meter: bool = False
     tempo: float | None = None
+    section: str | None = None
 
     @property
     def length(self) -> int:
@@ -690,6 +744,15 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     if s.tempo_bpm and midi_tempo and abs(midi_tempo - s.tempo_bpm) > 0.5:
         warnings.append(f'Metadata tempo_bpm={s.tempo_bpm:g} differs from the MIDI tempo {midi_tempo:g}; the score uses the metadata value')
     apply_tempo_changes(bars, data, shift, tempo, warnings)
+    if s.sections:
+        by_number = {bar.number: bar for bar in bars}
+        last_num = bars[-1].number
+        for bar_no, label in s.sections.items():
+            if bar_no not in by_number:
+                raise ScoreError(
+                    f'Metadata sections references bar {bar_no}, which is out of range '
+                    f'(valid bar numbers: 1..{last_num})')
+            by_number[bar_no].section = label
     return Transcription(bars, dmap, meta, s, len(data.hits), grace_count, duplicate_count,
                          len(triplet_beats), tempo, data, warnings)
 
@@ -892,7 +955,7 @@ def _rests(start: int, end: int, bar: Bar, tuplets: dict[int, int] | None = None
     return out
 
 
-def voice_items(bar: Bar, part: str) -> list[VoiceItem]:
+def voice_items(bar: Bar, part: str, *, beam_eighths: str = 'beat') -> list[VoiceItem]:
     """Notes and rests of one voice.
 
     Drum notation convention: a note lasts until the next onset of the same voice but
@@ -900,6 +963,8 @@ def voice_items(bar: Bar, part: str) -> list[VoiceItem]:
     remainder is filled with rests, so rhythms always add up beat by beat.  Inside a
     tuplet beat with several strokes a note lasts at most an 8th-note triplet, so the
     group stays beamed."""
+    if beam_eighths not in ('beat', 'half-bar'):
+        raise ScoreError(f'Unknown beam_eighths mode {beam_eighths!r}; expected beat or half-bar')
     onsets = voice_hits(bar, part)
     tuplets = voice_tuplets(bar, part)
     if not onsets:
@@ -929,18 +994,64 @@ def voice_items(bar: Bar, part: str) -> list[VoiceItem]:
         cursor = t + items[-1].duration
     if cursor < bar.length:
         items += _rests(cursor, bar.length, bar, tuplets)
-    assign_beams(items, bar)
+    assign_beams(items, bar, beam_eighths=beam_eighths)
     return items
 
 
-def assign_beams(items: list[VoiceItem], bar: Bar) -> None:
-    """Beam the notes of each beat together.  The primary beam spans the run of notes
-    after any leading rest; secondary beams join consecutive 16ths, and an isolated 16th
-    gets a hook (forward on the first note, backward otherwise)."""
+def _beam_run(run: list[VoiceItem]) -> None:
+    if len(run) < 2 or any(beam_level(it) == 0 for it in run):
+        return
+    levels = [beam_level(it) for it in run]
+    for i, it in enumerate(run):
+        it.beams = [(1, 'begin' if i == 0 else 'end' if i == len(run) - 1 else 'continue')]
+    for i, it in enumerate(run):
+        if levels[i] < 2:
+            continue
+        left = i > 0 and levels[i - 1] >= 2
+        right = i < len(run) - 1 and levels[i + 1] >= 2
+        if left and right:
+            it.beams.append((2, 'continue'))
+        elif right:
+            it.beams.append((2, 'begin'))
+        elif left:
+            it.beams.append((2, 'end'))
+        else:
+            it.beams.append((2, 'forward hook' if i == 0 else 'backward hook'))
+
+
+def _beam_beat(group: list[VoiceItem]) -> None:
+    run: list[VoiceItem] = []
+    for it in group:
+        if it.is_rest:
+            _beam_run(run)
+            run = []
+        else:
+            run.append(it)
+    _beam_run(run)
+
+
+def assign_beams(items: list[VoiceItem], bar: Bar, *, beam_eighths: str = 'beat') -> None:
+    """Beam contiguous non-rest note runs inside each beat (and optionally 4 straight 8ths
+    across each half of a 4/4 bar when ``beam_eighths='half-bar'``).  Secondary beams join
+    consecutive 16ths, and an isolated 16th gets a hook (forward on the first note,
+    backward otherwise)."""
+    if beam_eighths not in ('beat', 'half-bar'):
+        raise ScoreError(f'Unknown beam_eighths mode {beam_eighths!r}; expected beat or half-bar')
     by_beat: dict[int, list[VoiceItem]] = defaultdict(list)
     for item in items:
         if not item.measure_rest:
             by_beat[item.start // R].append(item)
+    beamed_beats: set[int] = set()
+    if beam_eighths == 'half-bar' and bar.beats == 4 and bar.beat_type == 4 and not bar.pickup:
+        for b0 in (0, 2):
+            half_start = b0 * R
+            half_items = by_beat.get(b0, []) + by_beat.get(b0 + 1, [])
+            if (len(half_items) == 4
+                    and all(not it.is_rest and it.tuplet is None and note_type(it) == ('eighth', 0)
+                            for it in half_items)
+                    and [it.start for it in half_items] == [half_start + k * (R // 2) for k in range(4)]):
+                _beam_run(half_items)
+                beamed_beats.update((b0, b0 + 1))
     for beat, group in by_beat.items():
         if any(it.tuplet for it in group):
             group[0].tuplet_edge = 'both' if len(group) == 1 else 'start'
@@ -948,32 +1059,8 @@ def assign_beams(items: list[VoiceItem], bar: Bar) -> None:
                 group[-1].tuplet_edge = 'stop'
             middle = beat * R + R // 2
             min(group, key=lambda it: (abs(it.start + it.duration / 2 - middle), it.start)).tuplet_label = True
-        first = next((i for i, it in enumerate(group) if not it.is_rest), None)
-        if first is None:
-            continue
-        run: list[VoiceItem] = []
-        for it in group[first:]:
-            if it.is_rest:
-                break
-            run.append(it)
-        if len(run) < 2 or any(beam_level(it) == 0 for it in run):
-            continue
-        levels = [beam_level(it) for it in run]
-        for i, it in enumerate(run):
-            it.beams = [(1, 'begin' if i == 0 else 'end' if i == len(run) - 1 else 'continue')]
-        for i, it in enumerate(run):
-            if levels[i] < 2:
-                continue
-            left = i > 0 and levels[i - 1] >= 2
-            right = i < len(run) - 1 and levels[i + 1] >= 2
-            if left and right:
-                it.beams.append((2, 'continue'))
-            elif right:
-                it.beams.append((2, 'begin'))
-            elif left:
-                it.beams.append((2, 'end'))
-            else:
-                it.beams.append((2, 'forward hook' if i == 0 else 'backward hook'))
+        if beat not in beamed_beats:
+            _beam_beat(group)
     for group in by_beat.values():
         if any(it.tuplet for it in group):
             # a tuplet that is not one beamed run of notes (rests inside, flags) needs

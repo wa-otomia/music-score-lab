@@ -29,6 +29,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--drum-map', help='override the drum map in the metadata: bundled name (gm, fpc-default) or YAML path')
     parser.add_argument('--track', action='append', help='use only tracks whose name contains this text (repeatable)')
     parser.add_argument('--channel', action='append', type=int, help='use only this MIDI channel, 1-16 (repeatable)')
+    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
+                        help='override notation.repeats in the metadata: simile (1- and 2-bar repeat signs) or off')
+    parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
+                        help='override notation.beam_eighths in the metadata: beat or half-bar (4/4 only)')
     parser.add_argument('--no-pdf', action='store_true', help='generate MusicXML only (no TeX environment needed)')
     parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
                         help='print (--legend) or omit (--no-legend) the instrument legend; default follows the metadata legend, omitted if unset')
@@ -39,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
-                            cli={'tracks': args.track, 'channels': args.channel})
+                            cli={'tracks': args.track, 'channels': args.channel,
+                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
     except ScoreError as exc:
         print(f'Error: {exc}', file=sys.stderr)
         return 2

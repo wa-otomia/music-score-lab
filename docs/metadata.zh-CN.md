@@ -7,7 +7,7 @@
 
 - 顶层只允许本文列出的字段（含文末“旧字段”），出现其他字段会直接报错（防止拼错字段名后被悄悄忽略）。
 - 所有字段都可省略；省略时使用“默认”一列的值。
-- `midi`、`quantize`、`dynamics`、`credits` 内部也只允许下文列出的子字段，拼错同样报错。
+- `midi`、`quantize`、`notation`、`dynamics`、`credits` 内部也只允许下文列出的子字段，拼错同样报错。
 
 ## 署名与文字
 
@@ -152,6 +152,38 @@ midi:
 | `dynamics.accent_above` | 整数 | 无（不启用） | 手部力度**大于**该值的音加重音记号 `>`（MusicXML `accent`） |
 
 脚部（底鼓、踩镲踏板）不做鬼音 / 重音标记。
+
+## 记谱
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `notation.repeats` | 字符串 | `simile` | 控制 1 小节（`%`）与 2 小节（`//`）反复记号（simile）的记谱。`simile`：启用（默认）；`off`：关闭（所有非空小节都完整记出）。不加引号的 `off` 会被 YAML 读成 false，同样按 `off` 处理。命令行 `--repeats` 优先 |
+| `notation.repeat_counters` | 布尔 | `true` | 当 1 小节 `%` 连续出现 2 小节及以上（即连续 3 个及以上相同小节）时，是否在每个 `%` 上方印出反复次数（`2`、`3`、`4`、…）。必须是 YAML 布尔值，写成带引号的字符串（如 `"false"`）会报错 |
+| `notation.beam_eighths` | 字符串 | `beat` | 8 分音符的横梁分组方式。`beat`：按拍分组，不跨拍（默认）；`half-bar`：在 4/4 的非弱起小节中，若前半小节（第 1–2 拍）或后半小节（第 3–4 拍）恰好为连续 4 个普通直拍 8 分音符，则用一条横梁连成一组（手、脚声部各自独立判断）。命令行 `--beam-eighths` 优先 |
+
+孤立的单个 `%`（仅连续 2 个相同小节）不印数字。2 小节反复 `//` 的符号本身始终带有 `2`，不受 `repeat_counters` 影响。反复记号的判定规则、分页处理与横梁规则见 [notation-conventions.zh-CN.md](notation-conventions.zh-CN.md) 的“反复记号”和“横梁”。
+
+```yaml
+notation:
+  repeats: simile        # 或 off（命令行 --repeats 优先）
+  repeat_counters: true  # 设为 false 时省略连续 % 上方的数字（2, 3, 4…）
+  beam_eighths: beat     # beat（默认）或 half-bar（命令行 --beam-eighths 优先）
+```
+
+## 段落
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `sections` | 映射 | 无 | 顶层字段，格式为 `小节号: 排练记号`。键为大于等于 1 且在乐谱小节号范围内的整数（不可指定第 0 弱起小节）；值为去掉首尾空白后 1–24 个字符的可打印 ASCII 字符串（中文、日文等非 ASCII 字符或空字符串会报错） |
+
+每个段落的首小节前会印双纵线（曲首以及弱起小节之后除外），并在小节上方印带方框的排练记号。同时，段落起点会拆开多小节休止、重置 1 小节（`%`）与 2 小节（`//`）反复记号，并在换行优化时优先从段落起点另起一行。详见 [notation-conventions.zh-CN.md](notation-conventions.zh-CN.md) 的“段落与排练记号”。
+
+```yaml
+sections:
+  1: Intro
+  9: A
+  25: Chorus
+```
 
 ## 旧字段
 

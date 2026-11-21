@@ -90,10 +90,19 @@ def _canonical(measure: ET.Element) -> list[tuple]:
     out: list[tuple] = []
     for el in measure:
         if el.tag == 'attributes':
-            out.append(('attributes', el.findtext('time/beats'), el.findtext('time/beat-type'),
-                        el.findtext('measure-style/multiple-rest')))
+            out.append((
+                'attributes', el.findtext('time/beats'), el.findtext('time/beat-type'),
+                tuple(mr.text for mr in el.findall('measure-style/multiple-rest')),
+                tuple((mr.get('type'), mr.get('slashes'), mr.text)
+                      for mr in el.findall('measure-style/measure-repeat'))))
         elif el.tag == 'direction':
-            out.append(('tempo', el.findtext('direction-type/metronome/per-minute')))
+            reh = el.find('direction-type/rehearsal')
+            out.append((
+                'direction',
+                (reh.get('enclosure'), reh.text) if reh is not None else None,
+                el.findtext('direction-type/metronome/per-minute')))
+        elif el.tag == 'barline':
+            out.append(('barline', el.get('location'), el.findtext('bar-style')))
         elif el.tag == 'backup':
             out.append(('backup', el.findtext('duration')))
         elif el.tag == 'note':
@@ -199,6 +208,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--drum-map')
     parser.add_argument('--track', action='append')
     parser.add_argument('--channel', action='append', type=int)
+    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
+                        help='override notation.repeats in the metadata: simile or off')
+    parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
+                        help='override notation.beam_eighths in the metadata: beat or half-bar')
     parser.add_argument('--musicxml', type=Path)
     parser.add_argument('--pdf', type=Path)
     parser.add_argument('--xsd', type=Path, default=default_xsd(),
@@ -212,7 +225,8 @@ def main(argv: list[str] | None = None) -> int:
             if target is not None and not target.is_file():
                 raise SetupError(f'file not found: {target}')
         score = build_score(args.midi, args.metadata, args.drum_map,
-                            cli={'tracks': args.track, 'channels': args.channel})
+                            cli={'tracks': args.track, 'channels': args.channel,
+                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
         if args.musicxml:
             print(validate_musicxml(score, args.musicxml, args.xsd))
         if args.pdf:

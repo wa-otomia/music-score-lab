@@ -30,7 +30,7 @@ from pathlib import Path
 import pymupdf
 
 from score_core import ScoreError, Transcription, build_score
-from midi_to_musixtex import convert, legend_entries, legend_tex
+from midi_to_musixtex import convert_with_layout, legend_entries, legend_tex
 from pdf_tounicode import fix_tounicode
 
 PAGE_W, PAGE_H = 595.276, 841.89          # A4 in PostScript points
@@ -264,12 +264,36 @@ def outline(src: Path, dst: Path, work: Path) -> None:
 
 
 def musixtex(work: Path, name: str, source: str) -> Path:
+    for ext in ('.mx1', '.mx2'):
+        stale = work / f'{name}{ext}'
+        if stale.exists():
+            stale.unlink()
     (work / f'{name}.tex').write_text(source, encoding='ascii')
     run(['musixtex', '-d', '-i', f'{name}.tex'], work)
     pdf = work / f'{name}.pdf'
     if not pdf.exists():
         raise RuntimeError(f'MusiXTeX did not produce {pdf.name}; see {work / (name + ".log")}')
     return pdf
+
+
+def _systems_per_page(pdf_path: Path) -> list[int]:
+    """Count engraved 5-line staves (systems) on each page of a MusiXTeX PDF."""
+    counts: list[int] = []
+    with pymupdf.open(pdf_path) as doc:
+        for page in doc:
+            ys = sorted(
+                d['rect'].y0
+                for d in page.get_drawings()
+                if d['rect'].width > 400 and d['rect'].height < 1.5
+            )
+            staves = 0
+            prev_y: float | None = None
+            for y in ys:
+                if prev_y is None or y - prev_y > 10.0:
+                    staves += 1
+                prev_y = y
+            counts.append(staves)
+    return counts
 
 
 def crop_legend(src: Path, dst: Path) -> None:
@@ -300,11 +324,29 @@ def render(score: Transcription, out: Path, work: Path, *, keep_tex: Path | None
         crop_legend(work / 'legend-outlined.pdf', work / 'legend-cells.pdf')
     height = measure_header(work, score, header, legend)
     space = max(0.0, HEADER_TOP + height + HEADER_GAP - NOTATION_TOP)
-    source = convert(score, header_space=space)
+    no_simile: set[int] = set()
+    source = ''
+    engraved = work / 'score.pdf'
+    for _pass in range(4):
+        source, systems = convert_with_layout(score, header_space=space, no_simile_bars=no_simile)
+        engraved = musixtex(work, 'score', source)
+        counts = _systems_per_page(engraved)
+        if len(counts) <= 1 or sum(counts) != len(systems):
+            break
+        added: set[int] = set()
+        sys_idx = counts[0]
+        for page_staves in counts[1:]:
+            if sys_idx < len(systems) and systems[sys_idx]:
+                first_unit = systems[sys_idx][0]
+                if first_unit.kind in ('simile-1', 'simile-2'):
+                    added.add(first_unit.first.index)
+            sys_idx += page_staves
+        if not added or added <= no_simile:
+            break
+        no_simile |= added
     if keep_tex:
         keep_tex.parent.mkdir(parents=True, exist_ok=True)
         keep_tex.write_text(source, encoding='ascii')
-    engraved = musixtex(work, 'score', source)
     log = (work / 'score.log').read_text(errors='replace') if (work / 'score.log').exists() else ''
     overfull = [float(x) for x in re.findall(r'Overfull \\hbox \(([\d.]+)pt too wide\)', log)]
     if overfull and max(overfull) > 4:
@@ -326,12 +368,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--legend', action=argparse.BooleanOptionalAction, default=None,
                         help='print (--legend) or omit (--no-legend) the instrument legend; default follows the metadata legend, omitted if unset')
+    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
+                        help='simile repeat notation: simile (default) or off; overrides metadata')
+    parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
+                        help='eighth-note beaming in 4/4: beat (default) or half-bar; overrides metadata')
     parser.add_argument('--keep-tex', type=Path, help='also save the generated MusiXTeX source (for debugging)')
     parser.add_argument('--work-dir', type=Path, help='directory to keep intermediate files (default: a temp dir deleted afterwards)')
     args = parser.parse_args(argv)
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
-                            cli={'tracks': args.track, 'channels': args.channel})
+                            cli={'tracks': args.track, 'channels': args.channel,
+                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
         if args.legend is not None:
             score.metadata['legend'] = args.legend
         if args.work_dir:

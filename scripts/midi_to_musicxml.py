@@ -4,7 +4,7 @@
 - One part, Drumset: upper voice 1 (hands, stems up), lower voice 2 (feet, stems down).
 - Each MIDI note in use gets one score-instrument / midi-instrument (channel 10),
   so MuseScore etc. still play back the original GM notes after import.
-- Noteheads, open/closed hi-hat marks, tuplets, beam levels, grace notes, whole-bar rests and multi-bar rests are written as standard elements,
+- Noteheads, open/closed hi-hat marks, tuplets, beam levels, grace notes, whole-bar rests, multi-bar rests, measure repeats, rehearsal marks and double barlines are written as standard elements,
   in the element order required by the MusicXML 4.0 XSD (tests validate against the official XSD).
 """
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path
 
 from score_core import (R, STAFF_LETTERS, Bar, Hit, ScoreError, Transcription, VoiceItem, build_score,
                         item_ratio, note_type, voice_items)
+from score_structure import has_double_bar_before, measure_repeat_events, multi_rest_lengths, plan_units
 
 NOTEHEAD = {'normal': ('normal', None), 'x': ('x', None), 'circle-x': ('circle-x', None),
             'diamond': ('diamond', 'no'), 'triangle': ('triangle', None), 'plus': ('cross', None),
@@ -109,8 +110,8 @@ def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None,
             sub(sub(notations, 'technical'), TECHNICAL[hit.inst.mark])
 
 
-def write_voice(measure: ET.Element, bar: Bar, part: str) -> None:
-    for item in voice_items(bar, part):
+def write_voice(measure: ET.Element, bar: Bar, part: str, *, beam_eighths: str = 'beat') -> None:
+    for item in voice_items(bar, part, beam_eighths=beam_eighths):
         if item.is_rest:
             write_note(measure, item, part, None, bar=bar)
             continue
@@ -123,22 +124,6 @@ def write_voice(measure: ET.Element, bar: Bar, part: str) -> None:
                 write_note(measure, item, part, h, grace=True, chord=i > 0, bar=bar, grace_beam=beam)
         for i, h in enumerate(heads):
             write_note(measure, item, part, h, chord=i > 0, first=i == 0, bar=bar)
-
-
-def multi_rest_lengths(bars: list[Bar]) -> dict[int, int]:
-    """Index of the first bar of each run of ≥2 empty bars → run length (same rule as the PDF)."""
-    runs: dict[int, int] = {}
-    i = 0
-    while i < len(bars):
-        j = i
-        if not bars[i].events and not bars[i].pickup:
-            while (j + 1 < len(bars) and not bars[j + 1].events and not bars[j + 1].show_meter
-                   and bars[j + 1].tempo is None):
-                j += 1
-        if j > i:
-            runs[i] = j - i + 1
-        i = j + 1
-    return runs
 
 
 def convert(score: Transcription) -> tuple[ET.Element, int]:
@@ -190,13 +175,16 @@ def convert(score: Transcription) -> tuple[ET.Element, int]:
         sub(mi, 'midi-unpitched', note + 1)  # MusicXML numbers unpitched keys 1–128
 
     part = sub(root, 'part', id=SCORE_PART)
-    multi = multi_rest_lengths(score.bars)
+    units = plan_units(score.bars, repeats=score.settings.repeats,
+                       repeat_counters=score.settings.repeat_counters)
+    multi = {u.first.index: len(u.bars) for u in units if u.kind == 'multi-rest'}
+    rep_events = measure_repeat_events(units)
     for i, bar in enumerate(score.bars):
         attrs = {'number': str(bar.number)}
         if bar.pickup:
             attrs['implicit'] = 'yes'
         measure = sub(part, 'measure', **attrs)
-        if i == 0 or bar.show_meter or i in multi:
+        if i == 0 or bar.show_meter or i in multi or i in rep_events:
             attributes = sub(measure, 'attributes')
             if i == 0:
                 sub(attributes, 'divisions', R)
@@ -209,18 +197,30 @@ def convert(score: Transcription) -> tuple[ET.Element, int]:
             if i == 0:
                 sub(sub(attributes, 'clef'), 'sign', 'percussion')
                 sub(sub(attributes, 'staff-details'), 'staff-lines', '5')
+            for kind, count in rep_events.get(i, []):
+                ms = sub(attributes, 'measure-style')
+                if kind == 'stop':
+                    sub(ms, 'measure-repeat', type='stop')
+                else:
+                    sub(ms, 'measure-repeat', count, type='start', slashes=str(count))
             if i in multi:
                 sub(sub(attributes, 'measure-style'), 'multiple-rest', multi[i])
+        if bar.section is not None:
+            direction = sub(measure, 'direction', placement='above')
+            sub(sub(direction, 'direction-type'), 'rehearsal', bar.section, enclosure='square')
         if bar.tempo is not None:
             direction = sub(measure, 'direction', placement='above')
             metronome = sub(sub(direction, 'direction-type'), 'metronome')
             sub(metronome, 'beat-unit', 'quarter')
             sub(metronome, 'per-minute', f'{bar.tempo:g}')
             sub(direction, 'sound', tempo=f'{bar.tempo:g}')
-        write_voice(measure, bar, 'hand')
+        write_voice(measure, bar, 'hand', beam_eighths=score.settings.beam_eighths)
         backup = sub(measure, 'backup')
         sub(backup, 'duration', bar.length)
-        write_voice(measure, bar, 'foot')
+        write_voice(measure, bar, 'foot', beam_eighths=score.settings.beam_eighths)
+        if i + 1 < len(score.bars) and has_double_bar_before(score.bars, i + 1):
+            barline = sub(measure, 'barline', location='right')
+            sub(barline, 'bar-style', 'light-light')
     if score.bars:
         last = part.findall('measure')[-1]
         barline = sub(last, 'barline', location='right')
@@ -249,11 +249,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--drum-map', help='bundled map name (gm, fpc-default) or YAML path')
     parser.add_argument('--track', action='append', help='use only tracks whose name contains this text (repeatable)')
     parser.add_argument('--channel', action='append', type=int, help='use only this MIDI channel, 1-16 (repeatable)')
+    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
+                        help='override notation.repeats in the metadata: simile (1- and 2-bar repeat signs) or off')
+    parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
+                        help='override notation.beam_eighths in the metadata: beat or half-bar (4/4 only)')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         score = build_score(args.midi, args.metadata, args.drum_map,
-                            cli={'tracks': args.track, 'channels': args.channel})
+                            cli={'tracks': args.track, 'channels': args.channel,
+                                 'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
         write(score, args.out)
     except ScoreError as exc:
         print(f'Error: {exc}', file=sys.stderr)

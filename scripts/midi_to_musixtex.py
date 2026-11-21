@@ -19,6 +19,31 @@ from pathlib import Path
 
 from score_core import (R, STAFF_LETTERS, Bar, Hit, ScoreError, Transcription, VoiceItem, build_score,
                         note_type, voice_items, voice_tuplets, _rests)
+from score_structure import MeasureUnit, has_double_bar_before, plan_units
+
+DEFAULT_LINE_WIDTH = 104.0
+
+PLAIN_TEX_ESCAPES = {
+    '\\': r'$\backslash$',
+    '{': r'$\{$',
+    '}': r'$\}$',
+    '#': r'\#',
+    '$': r'\$',
+    '%': r'\%',
+    '&': r'\&',
+    '_': r'\_',
+    '^': r'{\eighttt\char94}',
+    '~': r'{\eighttt\char126}',
+    '<': r'$<$',
+    '>': r'$>$',
+    '|': r'$\vert$',
+    '"': r'{\eighttt\char34}',
+}
+
+
+def escape_tex_ascii(text: str) -> str:
+    """Escape printable ASCII for Plain TeX inside MusiXTeX music mode."""
+    return ''.join(PLAIN_TEX_ESCAPES.get(c, c) for c in text)
 
 SYMBOL = {
     'normal': r'\q@symbol', 'x': r'\do@symbol', 'circle-x': r'\dc@symbol', 'diamond': r'\d@symbol',
@@ -53,6 +78,23 @@ PREAMBLE = r"""\input musixtex
 \def\@xccu{\n@vii\@xli\let\st@m\xup@flag\g@q}
 \def\@xcl{\n@vii\@xlv\let\st@m\xdown@flag\g@q}
 \def\@xccl{\n@vii46\let\st@m\xdown@flag\g@q}
+% Avoid stray space tokens after \generalmeter{...} newlines inside horizontal music mode.
+\let\orig@generalmeter\generalmeter
+\def\generalmeter#1{\orig@generalmeter{#1}\ignorespaces}
+% Boxed rehearsal mark for section labels (bold, crisp 0.6pt border).
+\font\eighttt=cmtt8
+\def\rehearsal#1{\vbox{\hrule height.6pt\hbox{\vrule width.6pt\kern2.5pt\vbox{\kern2pt\hbox{\ninebf #1}\kern2pt}\kern2.5pt\vrule width.6pt}\hrule height.6pt}}
+% Simile repeat symbols: numbered 1-bar % and barline-centered 2-bar // (pure vector paths + numeral).
+\def\csimile#1{\hbox{\duevolte\raise9.8\internote\hbox to0pt{\hss\eightbf #1\hss}}}
+\def\similetwo{\kern-.5\lthick\lrlap{\hbox{%
+  \special{pdf: content q 0 g
+    -7.9 5.0 m -6.1 5.0 l 3.9 15.0 l 2.1 15.0 l f
+    -3.9 5.0 m -2.1 5.0 l 7.9 15.0 l 6.1 15.0 l f
+    -4.75 12.45 m -4.75 13.00 -5.20 13.45 -5.75 13.45 c -6.30 13.45 -6.75 13.00 -6.75 12.45 c -6.75 11.90 -6.30 11.45 -5.75 11.45 c -5.20 11.45 -4.75 11.90 -4.75 12.45 c f
+    6.75 7.47 m 6.75 8.02 6.30 8.47 5.75 8.47 c 5.20 8.47 4.75 8.02 4.75 7.47 c 4.75 6.92 5.20 6.47 5.75 6.47 c 6.30 6.47 6.75 6.92 6.75 7.47 c f
+    Q}%
+  \raise9.8\internote\hbox to0pt{\hss\eightbf 2\hss}%
+}}\kern.5\lthick}
 """
 
 
@@ -235,21 +277,42 @@ class VoiceWriter:
         return self.refs[self._current]
 
 
-def tempo_mark(bar: Bar) -> str:
-    """Metronome mark placed clear of the highest stem in the bar."""
+def _tempo_pitch_steps(bar: Bar) -> int:
     letters = [h.inst.staff for hits in bar.events.values() for h in hits.values() if h.inst.part == 'hand']
     top = max(letters, key=STAFF_LETTERS.index) if letters else 'm'
-    pitch = chr(min(ord('z'), max(ord('q'), ord(top) + 11)))
+    return min(ord('z'), max(ord('q'), ord(top) + 11)) - ord('e')
+
+
+def tempo_mark(bar: Bar) -> str:
+    """Metronome mark placed clear of the highest stem in the bar."""
+    pitch = chr(ord('e') + _tempo_pitch_steps(bar))
     return r'\zcharnote{' + pitch + r'}{\metron{\qu}{' + f'{bar.tempo:g}' + '}}'
+
+
+def rehearsal_mark(bar: Bar) -> str:
+    """Boxed rehearsal label placed clear of hand stems/marks/accents and any tempo mark."""
+    assert bar.section is not None
+    hand_hits = [h for hits in bar.events.values() for h in hits.values() if h.inst.part == 'hand']
+    if hand_hits:
+        top = max((h.inst.staff for h in hand_hits), key=STAFF_LETTERS.index)
+        top_steps = STAFF_LETTERS.index(top) - STAFF_LETTERS.index('e')
+        pitch = max(14, top_steps + 7)
+        if any(h.accent for h in hand_hits) or voice_tuplets(bar, 'hand'):
+            pitch = max(pitch, top_steps + 10)
+    else:
+        pitch = 14
+    if bar.tempo is not None and bar.index > 0:
+        pitch = max(pitch, _tempo_pitch_steps(bar) + 8)
+    return r'\zcharnote{' + str(pitch) + r'}{\rehearsal{' + escape_tex_ascii(bar.section) + '}}'
 
 
 def bar_is_empty(bar: Bar) -> bool:
     return not bar.events
 
 
-def bar_groups(bar: Bar) -> tuple[list[str], float]:
+def bar_groups(bar: Bar, *, beam_eighths: str = 'beat') -> tuple[list[str], float]:
     """TeX note groups for one non-empty bar and its estimated width in elemskips."""
-    voices = {part: voice_items(bar, part) for part in ('hand', 'foot')}
+    voices = {part: voice_items(bar, part, beam_eighths=beam_eighths) for part in ('hand', 'foot')}
     writers = {part: VoiceWriter(part, bar) for part in voices}
     for part, items in voices.items():
         writers[part].start_bar_beams(items)
@@ -289,6 +352,8 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         slot = (times[i + 1] if i + 1 < len(times) else bar.length) - t
         entry = timeline[t]
         body = ''
+        if i == 0 and bar.section is not None:
+            body += rehearsal_mark(bar)
         if i == 0 and bar.tempo is not None and bar.index > 0:
             body += tempo_mark(bar)
         for part, pitch in (('hand', 'q'), ('foot', 'a')):
@@ -359,10 +424,119 @@ def _run_start(items: list[VoiceItem], item: VoiceItem) -> int | None:
     return None
 
 
-def convert(score: Transcription, *, header_space: float = 0.0, line_width: float = 74.0,
-            max_bars_per_line: int = 4) -> str:
-    """Full MusiXTeX document.  ``header_space`` (pt) is left blank above the first system
-    for the XeLaTeX title block; ``line_width`` is the elemskip budget per system."""
+def plan_systems(units: list[MeasureUnit], widths: list[float], *,
+                 line_width: float = DEFAULT_LINE_WIDTH,
+                 max_bars_per_line: int = 4) -> list[list[int]]:
+    """Choose phrase-aligned system breaks via dynamic programming.
+
+    Logical bar span counts 2 for ``simile-2`` (which is atomic and never split) and 1 for
+    ``bar``, ``simile-1``, and ``multi-rest``.  When the piece starts with a pickup bar,
+    system 1 may hold the pickup plus up to ``max_bars_per_line`` logical bars (when width
+    fits within ``1.08 * line_width``) so bars 1-4 stay together on the opening line.
+    """
+    n = len(units)
+    if n == 0:
+        return []
+    spans = [2 if u.kind == 'simile-2' else 1 for u in units]
+    pref_w = [0.0] * (n + 1)
+    pref_s = [0] * (n + 1)
+    for k in range(n):
+        pref_w[k + 1] = pref_w[k] + widths[k]
+        pref_s[k + 1] = pref_s[k] + spans[k]
+
+    has_pickup = units[0].first.pickup
+    anchors: list[int] = []
+    anchor = 1
+    for u in units:
+        if u.first.section is not None:
+            anchor = u.first.number
+        anchors.append(anchor)
+
+    inf = float('inf')
+    dp = [inf] * (n + 1)
+    nxt = [-1] * (n + 1)
+    dp[n] = 0.0
+
+    for i in range(n - 1, -1, -1):
+        first_pickup = i == 0 and has_pickup
+        for j in range(i + 1, n + 1):
+            total_span = pref_s[j] - pref_s[i]
+            eff_span = total_span - (1 if first_pickup else 0)
+            w = pref_w[j] - pref_w[i]
+            is_last = j == n
+
+            if j > i + 1:
+                if first_pickup:
+                    if eff_span > max_bars_per_line:
+                        break
+                    cap = 1.08 * line_width if total_span > max_bars_per_line else 1.12 * line_width
+                    if w > cap:
+                        break
+                else:
+                    max_span = max_bars_per_line + (1 if is_last else 0)
+                    if eff_span > max_span:
+                        break
+                    if w > 1.12 * line_width:
+                        break
+
+            cost = 12.0  # per-line cost
+            if first_pickup and j == 1:
+                cost += 120.0
+            elif eff_span == max_bars_per_line:
+                cost += 0.0
+            elif is_last and eff_span == max_bars_per_line + 1:
+                cost += 16.0
+            elif eff_span == 2:
+                cost += 14.0
+            elif eff_span == 3:
+                cost += 22.0
+            elif eff_span == 1:
+                cost += 65.0
+            else:
+                cost += 10.0 * abs(max_bars_per_line - eff_span)
+
+            last_bar = units[j - 1].last
+            if not last_bar.pickup and (last_bar.number - anchors[j - 1] + 1) % 4 == 0:
+                cost -= 12.0
+
+            if j < n and units[j].first.section is not None and not last_bar.pickup:
+                cost -= 28.0
+
+            if i > 0 and units[i].kind in ('simile-1', 'simile-2'):
+                cost += 4.0
+
+            if w > line_width:
+                excess = (w - line_width) / line_width
+                cost += 40.0 * excess + 250.0 * excess * excess
+            elif not is_last and eff_span < max_bars_per_line and w < 0.55 * line_width:
+                deficit = (0.55 * line_width - w) / line_width
+                cost += 30.0 * deficit * deficit
+
+            total = cost + dp[j]
+            if total < dp[i]:
+                dp[i] = total
+                nxt[i] = j
+
+    systems: list[list[int]] = []
+    cur = 0
+    while cur < n:
+        end = nxt[cur]
+        systems.append(list(range(cur, end)))
+        cur = end
+    return systems
+
+
+def convert_with_layout(score: Transcription, *, header_space: float = 0.0,
+                        line_width: float = DEFAULT_LINE_WIDTH,
+                        max_bars_per_line: int = 4,
+                        no_simile_bars: set[int] | frozenset[int] = frozenset()
+                        ) -> tuple[str, list[list[MeasureUnit]]]:
+    """Full MusiXTeX document plus the exact list of ``MeasureUnit`` objects per system.
+
+    ``header_space`` (pt) is left blank above the first system for the XeLaTeX title block;
+    ``line_width`` is the elemskip budget per system; ``no_simile_bars`` lists 0-based bar
+    indices that must be engraved in full (e.g. the first bar of a new PDF page).
+    """
     bars = score.bars
     first = bars[0]
     lines = [PREAMBLE.rstrip('\n'),
@@ -374,82 +548,99 @@ def convert(score: Transcription, *, header_space: float = 0.0, line_width: floa
         lines.append(r'\hbox{}\vskip' + f'{header_space:.1f}' + 'pt')
     lines.append(r'\startpiece')
 
-    # group consecutive empty bars into multi-bar rests
-    units: list[list[Bar]] = []
-    for bar in bars:
-        if (units and bar_is_empty(bar) and bar_is_empty(units[-1][-1]) and not units[-1][-1].pickup
-                and not bar.show_meter and bar.tempo is None):
-            units[-1].append(bar)
-        else:
-            units.append([bar])
+    units = plan_units(bars, repeats=score.settings.repeats,
+                       repeat_counters=score.settings.repeat_counters,
+                       no_simile_bars=no_simile_bars)
 
     # render every unit first, then plan systems from the estimated widths
     rendered: list[tuple[list[str], float]] = []
     for unit in units:
-        bar = unit[0]
-        body = [f'% bar {bar.number}' + (f'-{unit[-1].number}' if len(unit) > 1 else '')
-                + (' (pickup)' if bar.pickup else '')]
-        if bar_is_empty(bar) and not bar.pickup:
-            n = len(unit)
-            body.append(r'\vnotes' + ('7' if n == 1 else '12') + r'\elemskip'
-                        + (tempo_mark(bar) if bar.tempo and bar.index else '') + r'\en')
-            atnext = r'\centerHpause{' + str(n) + '}' if n > 1 else r'\centerpause'
-            body.append(r'\def\atnextbar{\znotes' + atnext + r'\en}')
-            width = 8.0 if n == 1 else 13.0
-        elif bar.pickup and bar_is_empty(bar):
-            body += [spacing(R * 2) + rest_macro(it) + r'\en' for it in _rests(0, bar.length, bar)]
-            width = 5.0
+        bar = unit.first
+        if unit.kind == 'multi-rest':
+            n = len(unit.bars)
+            marks = ((rehearsal_mark(bar) if bar.section is not None else '')
+                     + (tempo_mark(bar) if bar.tempo and bar.index else ''))
+            body = [f'% bar {bar.number}-{unit.last.number}',
+                    r'\vnotes12\elemskip' + marks + r'\en',
+                    r'\def\atnextbar{\znotes\centerHpause{' + str(n) + r'}\en}%',
+                    r'\global\advance\barno by ' + str(n - 1)]
+            width = 13.0
+        elif unit.kind == 'simile-1':
+            glyph = r'\csimile{' + str(unit.counter) + '}' if unit.counter is not None else r'\hbox{\duevolte}'
+            body = [f'% bar {bar.number} (simile)',
+                    r'\vnotes7\elemskip\en',
+                    r'\def\atnextbar{\znotes\centerbar{' + glyph + r'}\en}%']
+            width = 7.0
+        elif unit.kind == 'simile-2':
+            body = [f'% bar {bar.number}-{unit.last.number} (simile-2)',
+                    r'\vnotes7\elemskip\en',
+                    r'\def\atnextbar{\znotes\similetwo\en}%',
+                    r'\bar',
+                    r'\vnotes7\elemskip\en']
+            width = 15.5
         else:
-            groups, width = bar_groups(bar)
-            body += groups
-            for t in getattr(bar, 'collisions', []):
-                note = (f'Bar {bar.number}, beat {t // R + 1}: the hand and foot noteheads are adjacent and both beamed, so they cannot be offset '
-                        'and may overlap; adjust the position in note_map')
-                if note not in score.warnings:
-                    score.warnings.append(note)
-        if len(unit) > 1:
-            body.append(r'\global\advance\barno by ' + str(len(unit) - 1))
+            body = [f'% bar {bar.number}' + (' (pickup)' if bar.pickup else '')]
+            if bar_is_empty(bar) and not bar.pickup:
+                marks = ((rehearsal_mark(bar) if bar.section is not None else '')
+                         + (tempo_mark(bar) if bar.tempo and bar.index else ''))
+                body.append(r'\vnotes7\elemskip' + marks + r'\en')
+                body.append(r'\def\atnextbar{\znotes\centerpause\en}')
+                width = 8.0
+            elif bar.pickup and bar_is_empty(bar):
+                body += [spacing(R * 2) + rest_macro(it) + r'\en' for it in _rests(0, bar.length, bar)]
+                width = 5.0
+            else:
+                groups, width = bar_groups(bar, beam_eighths=score.settings.beam_eighths)
+                body += groups
+                for t in getattr(bar, 'collisions', []):
+                    note = (f'Bar {bar.number}, beat {t // R + 1}: the hand and foot noteheads are adjacent and both beamed, so they cannot be offset '
+                            'and may overlap; adjust the position in note_map')
+                    if note not in score.warnings:
+                        score.warnings.append(note)
         meter = 3.0 if bar.show_meter and bar.index else 0.0  # a time-signature change takes room too
-        rendered.append((body, width + 1.5 + meter))  # + bar line and clearance
+        rendered.append((body, width + 1.5 + meter))          # + bar line and clearance
 
-    systems: list[list[int]] = [[]]
-    used = 0.0
-    for u, (_body, width) in enumerate(rendered):
-        if systems[-1] and (len(systems[-1]) >= max_bars_per_line or used + width > line_width):
-            systems.append([])
-            used = 0.0
-        systems[-1].append(u)
-        used += width
-    if len(systems) > 1:
-        last = sum(rendered[u][1] for u in systems[-1])
-        prev = sum(rendered[u][1] for u in systems[-2])
-        if (last < line_width * 0.45 and prev + last <= line_width * 1.15
-                and len(systems[-2]) + len(systems[-1]) <= max_bars_per_line + 1):
-            tail = systems.pop()  # avoid a lonely, stretched last system
-            systems[-1] += tail
+    widths = [w for _body, w in rendered]
+    systems = plan_systems(units, widths, line_width=line_width, max_bars_per_line=max_bars_per_line)
 
     starts = {s_[0] for s_ in systems}
     for u, (body, _width) in enumerate(rendered):
         lines += body
         if u == len(rendered) - 1:
             break
-        nxt = units[u + 1][0]
+        nxt = units[u + 1].first
+        dbl = has_double_bar_before(bars, nxt.index)
         if nxt.show_meter:
             lines.append(r'\generalmeter{\meterfrac{' + str(nxt.beats) + '}{4}}')
         if u + 1 in starts:
+            if dbl:
+                lines.append(r'\setdoublebar')
             lines.append(r'\alaligne')
         elif nxt.show_meter:
-            lines.append(r'\changecontext')
+            lines.append(r'\Changecontext' if dbl else r'\changecontext')
         else:
-            lines.append(r'\bar')
+            lines.append(r'\doublebar' if dbl else r'\bar')
     lines += [r'\setdoubleBAR\endpiece', r'\bye']
-    return '\n'.join(lines) + '\n'
+    system_units = [[units[u] for u in s_] for s_ in systems]
+    return '\n'.join(lines) + '\n', system_units
 
 
-def estimate_width(bar: Bar) -> float:
+def convert(score: Transcription, *, header_space: float = 0.0,
+            line_width: float = DEFAULT_LINE_WIDTH,
+            max_bars_per_line: int = 4,
+            no_simile_bars: set[int] | frozenset[int] = frozenset()) -> str:
+    """Full MusiXTeX document.  ``header_space`` (pt) is left blank above the first system
+    for the XeLaTeX title block; ``line_width`` is the elemskip budget per system."""
+    tex, _systems = convert_with_layout(score, header_space=header_space, line_width=line_width,
+                                        max_bars_per_line=max_bars_per_line,
+                                        no_simile_bars=no_simile_bars)
+    return tex
+
+
+def estimate_width(bar: Bar, *, beam_eighths: str = 'beat') -> float:
     if bar_is_empty(bar):
         return 7.0
-    return bar_groups(bar)[1]
+    return bar_groups(bar, beam_eighths=beam_eighths)[1]
 
 
 def legend_entries(score: Transcription) -> list[tuple[list[int], 'Instrument']]:
@@ -489,10 +680,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('midi', type=Path)
     parser.add_argument('--metadata', type=Path, required=True)
     parser.add_argument('--drum-map', help='bundled map name (gm, fpc-default) or YAML path')
+    parser.add_argument('--repeats', choices=['off', 'simile'], default=None,
+                        help='simile repeat notation: simile (default) or off; overrides metadata')
+    parser.add_argument('--beam-eighths', choices=['beat', 'half-bar'], default=None,
+                        help='eighth-note beaming in 4/4: beat (default) or half-bar; overrides metadata')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        score = build_score(args.midi, args.metadata, args.drum_map)
+        score = build_score(args.midi, args.metadata, args.drum_map,
+                            cli={'repeats': args.repeats, 'beam_eighths': args.beam_eighths})
     except ScoreError as exc:
         print(f'Error: {exc}', file=sys.stderr)
         return 2

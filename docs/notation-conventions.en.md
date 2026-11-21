@@ -2,9 +2,9 @@
 
 # Notation Conventions
 
-This document describes the Japanese-style drum notation that the converter **currently implements**. The PDF and the MusicXML come from the same notation model (`scripts/score_core.py`),
-so rhythm, note values, beams and rests are identical. The only differences are the triplet brackets (see "Triplets and Sextuplets"), the merging of rests that are identical in both voices,
-and the left/right offset of noteheads (a PDF layout detail).
+This document describes the Japanese-style drum notation that the converter **currently implements**. The PDF and the MusicXML come from the same notation model (`scripts/score_core.py` and `scripts/score_structure.py`),
+so rhythm, note values, beams, rests and repeat marks agree. The only differences are the triplet brackets (see "Triplets and Sextuplets"), the merging of rests that are identical in both voices,
+and PDF-only layout details (horizontal notehead offsets and expanding a repeat at the start of a new page).
 
 ## Staff and Voices
 
@@ -124,11 +124,11 @@ For example, if the feet play the bass drum only on beat 1, one quarter note is 
 
 ## Beams
 
-- Beams are grouped by beat and **never cross a beat**.
-- In each beat, the run of notes from the first note up to the first rest is joined by one primary beam; notes after a rest within the beat get their own flags.
+- By default (`notation.beam_eighths: beat`), beams are grouped by beat and **never cross a beat**.
+- With `notation.beam_eighths: half-bar` (or the command-line `--beam-eighths half-bar`), in non-pickup 4/4 bars each half-bar (beats 1–2 and beats 3–4) is checked independently per voice: when it consists of exactly 4 consecutive plain straight eighth notes, those 4 notes are joined under one beam. Half-bars containing rests, quarter notes, dotted notes, sixteenth notes or tuplets, as well as non-4/4 bars and pickup bars, fall back to per-beat beaming (see "Notation" in [metadata.en.md](metadata.en.md)).
+- Within each beat, every contiguous run of 2 or more beamable notes delimited by rests is joined by its own primary beam, including runs after a rest inside a beat (for example in triplet or sextuplet beats). A single eighth/sixteenth note isolated by rests, or alone in a beat, gets a flag instead of a beam.
 - Eighth notes get one beam, sixteenth notes two. Adjacent sixteenths share the second beam. An isolated sixteenth in a beam group gets a short beam (hook):
   pointing right at the start of the group, left otherwise (for example "dotted eighth + sixteenth" and "sixteenth + eighth + sixteenth").
-- A beat with only one note has no beam; eighths and sixteenths get flags.
 - Beam height follows the outermost noteheads of the whole group, and a stem never passes through a notehead of a chord.
 
 ## Triplets and Sextuplets
@@ -172,7 +172,16 @@ Enabled only when the metadata sets `dynamics.ghost_below` / `dynamics.accent_ab
 
 - A single empty bar gets a whole-bar rest.
 - Two or more consecutive empty bars are merged into a multi-measure rest (a thick bar with the number of bars in the PDF, `multiple-rest` in MusicXML).
-  Counting restarts at a bar with a time signature change or a tempo change; pickup bars are not merged.
+  Counting restarts at a bar with a time signature change, a tempo change, or a section start; pickup bars are not merged.
+
+## Repeat (Simile) Marks
+
+- Enabled by default (`notation.repeats: simile`), and can be disabled with metadata `notation.repeats: off` or the command-line `--repeats off` (see "Notation" in [metadata.en.md](metadata.en.md)).
+- **1-bar simile (`%`)**: when a non-empty, non-pickup bar matches the immediately preceding bar (provided the preceding bar is not part of a 2-bar `//` repeat), `%` is printed centered in the measure. When 2 or more `%` bars occur consecutively (3 or more identical bars in a row), small count numbers (`2`, `3`, `4`, …) are printed above the staff over each `%`; an isolated single `%` is unnumbered. Count numbers can be turned off with `notation.repeat_counters: false`.
+- **2-bar simile (`//`)**: when an alternating 2-bar pattern `A | B` (two distinct bars) repeats immediately, a double-slash simile (`//`) with `2` is printed centered astride the barline between the two repeated bars (a 2-bar simile always carries `2` as part of the symbol and is never split across a line break).
+- Repeats break on empty bars, pickup bars, time-signature changes, tempo changes, section starts, or any difference in rhythm, tuplets, voice, staff position, notehead, open/closed mark, grace note, ghost note, or accent (different MIDI notes that engrave with the same position, notehead, mark, and voice compare equal).
+- **PDF**: a new page (page 2 onward) never starts with `%` or `//`; the first bar of a new page is engraved in full and restarts the repeat count.
+- **MusicXML 4.0**: repeats are written with `<measure-style><measure-repeat>` (`slashes="1"` for 1-bar, `slashes="2"` for 2-bar) while keeping all encoded `<note>` elements inside every repeated measure so playback and validation remain lossless.
 
 ## Time Signatures, Pickups and Tempo
 
@@ -180,10 +189,17 @@ Enabled only when the metadata sets `dynamics.ghost_below` / `dynamics.accent_ab
 - A pickup bar is numbered 0 (MusicXML `implicit="yes"`) and prints its own time signature (for example 2/4); the following bars are numbered from 1.
 - The starting tempo is printed as `BPM` in the title block; later tempo changes in the MIDI are printed as `♩ = value` at the start of the bar they fall in (a change in the middle of a bar is also marked at the start of that bar).
 
+## Sections and Rehearsal Marks
+
+- Setting the top-level `sections` mapping (`bar_number: ASCII label`) in metadata marks structural sections of the piece (see "Sections" in [metadata.en.md](metadata.en.md)).
+- **Double barline**: a double barline is printed immediately before a section start (in MusicXML, `<barline location="right"><bar-style>light-light</bar-style></barline>` on the preceding measure), except when the section starts at the very first bar of the score or immediately after a pickup bar.
+- **Rehearsal mark**: the section label (1–24 printable ASCII characters) is printed in a box above the start of the bar (in MusicXML, `<direction placement="above"><direction-type><rehearsal enclosure="square">`). It works on normal bars, empty bars and multi-measure rests alike, positioned clear of notes, tempo marks and system bar numbers.
+- **Structural resets and line breaks**: a section start splits multi-measure rests and resets 1-bar (`%`) and 2-bar (`//`) simile repeats (preventing a 2-bar repeat template from crossing a section boundary). Line-break optimization strongly favors starting a new system at each section boundary and resets 4-bar phrase alignment from the section start.
+
 ## Layout
 
-- A4 portrait; each system holds at most 4 bars (a multi-measure rest counts as one), with line breaks according to content width. If the last system is very short, it is merged into the previous one
-  so that a single bar is not stretched across a whole line, so a merged system has at most 5 bars. A final barline is printed at the end of the piece.
+- A4 portrait. Line breaks use phrase-aligned optimization: within the line width, the layout strongly favors starting a new system at section boundaries (`sections`) and prefers 4-bar phrases (4-bar boundaries counted from bar 1 or the latest section start); a multi-measure rest counts as 1 bar and a 2-bar simile (`//`) counts as 2 bars and is never split across a line break.
+- When a pickup bar (bar 0) is present, the first system keeps bar 0 together with bars 1–4 (up to 5 bars) whenever width allows. Likewise, the final system may hold up to 5 bars to avoid stretching a lone bar across an entire line. A final barline is printed at the end of the piece.
 - The bar number is printed at the start of each system.
 - The top of the first page is the title block (followed by the legend when the legend is enabled); continuation pages have `<song title>　<artist>　ドラム譜` at the top; every page has its page number `n / N` at the bottom.
 

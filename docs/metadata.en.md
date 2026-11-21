@@ -7,7 +7,7 @@ For a new song, copy [templates/metadata.yaml](../templates/metadata.yaml).
 
 - Only the fields listed in this document (including the "Legacy fields" at the end) are allowed at the top level. Any other field is an error, so a misspelled field name is never silently ignored.
 - Every field is optional; when omitted, the value in the "Default" column is used.
-- `midi`, `quantize`, `dynamics` and `credits` also accept only the sub-fields listed below; a misspelling is an error here too.
+- `midi`, `quantize`, `notation`, `dynamics` and `credits` also accept only the sub-fields listed below; a misspelling is an error here too.
 
 ## Credits and text
 
@@ -148,6 +148,38 @@ The barlines after the pickup bar follow the MIDI time signature; time signature
 | `dynamics.accent_above` | integer | none (disabled) | Hand notes with velocity **above** this value get an accent mark `>` (MusicXML `accent`) |
 
 Feet (bass drum, pedal hi-hat) get no ghost / accent marks.
+
+## Notation
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `notation.repeats` | string | `simile` | Controls 1-bar (`%`) and 2-bar (`//`) simile repeat notation. `simile`: enabled (default); `off`: disabled (every non-empty bar is written out in full). An unquoted `off` is read by YAML as false and is treated as `off` all the same. The command-line `--repeats` takes precedence |
+| `notation.repeat_counters` | boolean | `true` | Whether to print repeat-run numbers (`2`, `3`, `4`, …) above each `%` when 2 or more 1-bar `%` bars occur in a row (3 or more identical bars consecutively). Must be a YAML boolean; a quoted string such as `"false"` is an error |
+| `notation.beam_eighths` | string | `beat` | Controls 8th-note beaming. `beat`: grouped per beat, never crossing a beat (default); `half-bar`: in non-pickup 4/4 bars, beams 4 consecutive plain straight 8th notes per half-bar (beats 1–2 and beats 3–4), decided independently for each voice. The command-line `--beam-eighths` takes precedence |
+
+An isolated single `%` (2 identical bars in a row) is left unnumbered. A 2-bar `//` repeat always carries `2` as part of the symbol itself and is not affected by `repeat_counters`. For the matching rules, page-break handling and beaming rules, see "Repeat (Simile) Marks" and "Beams" in [notation-conventions.en.md](notation-conventions.en.md).
+
+```yaml
+notation:
+  repeats: simile        # or off (command-line --repeats takes precedence)
+  repeat_counters: true  # set to false to omit count numbers (2, 3, 4…) above consecutive % bars
+  beam_eighths: beat     # beat (default) or half-bar (command-line --beam-eighths takes precedence)
+```
+
+## Sections
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sections` | mapping | none | Top-level `bar_number: rehearsal label` mapping. Each key must be an integer `>= 1` within the score's bar range (pickup bar 0 is not allowed); each value must be 1–24 printable ASCII characters after trimming (non-ASCII characters or empty strings are an error) |
+
+Each section start gets a double barline before it (except at the start of the piece or immediately after a pickup bar) and a boxed rehearsal mark above the bar. A section boundary also splits multi-measure rests, resets 1-bar (`%`) and 2-bar (`//`) simile repeats, and encourages starting a new system on that bar. For details see "Sections and Rehearsal Marks" in [notation-conventions.en.md](notation-conventions.en.md).
+
+```yaml
+sections:
+  1: Intro
+  9: A
+  25: Chorus
+```
 
 ## Legacy fields
 
