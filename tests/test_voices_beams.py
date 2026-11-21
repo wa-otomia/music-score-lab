@@ -2,6 +2,7 @@ import random
 from fractions import Fraction
 
 import pytest
+from score_core import ScoreError
 
 from conftest import HH, KICK, RIDE, SNARE, TOM, build
 from score_core import R, beam_level, note_type, voice_hits, voice_items
@@ -62,7 +63,13 @@ def test_synthetic_rhythms_add_up(tmp_path, seed):
             check_voice(bar, part)
 
 
-@pytest.mark.parametrize('beats', [1, 2, 3, 5, 7])
+def test_pickup_must_be_shorter_than_first_bar(tmp_path):
+    with pytest.raises(ScoreError, match='弱起'):
+        build(tmp_path, [(0.75, SNARE), (2, KICK)], {'pickup_beats': 1, 'source_leading_beats': 1},
+              sigs=[(0, 1, 4), (1, 1, 4)])
+
+
+@pytest.mark.parametrize('beats', [2, 3, 5, 7])
 def test_odd_meters_and_pickups_add_up(tmp_path, beats):
     hits = [(0.75, SNARE), (beats + 1.5, KICK), (beats + 2, HH), (2 * beats - 0.25, HH)]
     score = build(tmp_path, hits, {'pickup_beats': 1, 'source_leading_beats': 1},
@@ -104,7 +111,7 @@ def test_quarter_inside_triplet_beat(tmp_path):
     assert note_type(foot[0]) == ('quarter', 0)
     assert foot[0].tuplet_edge is None and not foot[0].beams
     hand = voice_items(bar, 'hand')
-    assert [(it.duration, it.tuplet) for it in hand[:3]] == [(16, 6)] * 3
+    assert [(it.duration, it.tuplet) for it in hand[:3]] == [(16, 3)] * 3  # 8th triplets print '3'
 
 
 def test_triplet_rest_inside_triplet_beat(tmp_path):
@@ -112,7 +119,7 @@ def test_triplet_rest_inside_triplet_beat(tmp_path):
     score = build(tmp_path, hits, **FOUR_FOUR)
     hand = voice_items(score.bars[0], 'hand')
     assert [(it.start, it.duration, it.is_rest, it.tuplet) for it in hand[:3]] == [
-        (0, 16, True, 6), (16, 16, False, 6), (32, 16, False, 6)]
+        (0, 16, True, 3), (16, 16, False, 3), (32, 16, False, 3)]
     assert hand[0].tuplet_edge == 'start' and hand[2].tuplet_edge == 'stop'
 
 
@@ -203,6 +210,8 @@ def test_mixed_triplet_beam_eighth_and_sixteenths(tmp_path):
     # triplet eighth + two sextuplet 16ths: 0, 1/3, 1/2
     score = build(tmp_path, [(0, SNARE), (1 / 3, SNARE), (0.5, SNARE), (3, KICK)], **FOUR_FOUR)
     hand = voice_items(score.bars[0], 'hand')[:3]
-    assert [(it.duration, it.tuplet) for it in hand] == [(16, 6), (8, 6), (24, 6)]
+    # inside a tuplet beat with several strokes a note lasts at most an 8th-note triplet,
+    # so the last stroke is an 8th triplet followed by a 16th-triplet rest
+    assert [(it.duration, it.tuplet) for it in hand] == [(16, 6), (8, 6), (16, 6)]
     assert [beam_level(it) for it in hand] == [1, 2, 1]
     assert hand[1].beams == [(1, 'continue'), (2, 'backward hook')]

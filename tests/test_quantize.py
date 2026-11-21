@@ -80,9 +80,6 @@ def test_32nd_note_run_alternating_pitches_raises(tmp_path):
     assert '第 6 拍' in str(exc.value)
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: a single-pitch 32nd-note run (snare roll) is chained into one '
-                   'flam/duplicate cluster (each hit within flam_window=1/8 beat of the previous) and collapses '
-                   'to one note with only a warning: silent loss of 7 of 8 hits')
 def test_32nd_note_run_single_pitch_raises(tmp_path):
     hits = [(i / 8, SNARE) for i in range(8)]
     with pytest.raises(ScoreError):
@@ -90,8 +87,6 @@ def test_32nd_note_run_single_pitch_raises(tmp_path):
         assert score.engraved_hits == 8  # anything else is lost notes
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: a 32nd note at 1/8 beat is exactly 1/24 beat from the sextuplet '
-                   'grid point 1/6, so it is silently engraved as a sextuplet 16th (wrong rhythm, no warning)')
 def test_isolated_32nd_offbeat_is_not_a_sextuplet(tmp_path):
     hits = [(0, KICK), (0.125, SNARE)]
     try:
@@ -113,15 +108,11 @@ def test_unquantized_performance_raises(tmp_path):
         build(tmp_path, hits, **FOUR_FOUR)
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: with quantize.tuplets: off, 8th-note triplets are within the 1/12-beat '
-                   'fallback of the 16th grid and get re-timed to 0, 1/4, 3/4 with only a warning instead of an error')
 def test_tuplets_off_with_triplets_raises(tmp_path):
     with pytest.raises(ScoreError, match='tuplets: off'):
         build(tmp_path, [(i / 3, RIDE) for i in range(3)], {'quantize': {'tuplets': 'off'}}, **FOUR_FOUR)
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: with quantize.tuplets: off, sextuplet hits 1/6 and 1/3 both snap to '
-                   '1/4 and are merged as duplicates (silent loss, only a warning)')
 def test_tuplets_off_with_sextuplets_raises(tmp_path):
     with pytest.raises(ScoreError):
         build(tmp_path, [(i / 6, SNARE) for i in range(6)], {'quantize': {'tuplets': 'off'}}, **FOUR_FOUR)
@@ -138,8 +129,6 @@ def test_subdivision_2_with_sixteenths_raises(tmp_path):
         build(tmp_path, [(i / 4, HH) for i in range(4)], {'quantize': {'subdivision': 2}}, **FOUR_FOUR)
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: with subdivision 2, a lone off-beat 16th (beat + 1/4) is exactly 1/12 '
-                   'from the 8th-triplet grid and is re-timed to a triplet (warning only) instead of raising')
 @pytest.mark.parametrize('offset', [0.25, 0.75])
 def test_subdivision_2_with_single_sixteenth_raises(tmp_path, offset):
     with pytest.raises(ScoreError, match='8 分'):
@@ -157,8 +146,6 @@ def test_bad_subdivision(tmp_path, value):
         build(tmp_path, [(0, HH)], {'quantize': {'subdivision': value}})
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: non-numeric quantize.subdivision / tempo_bpm raise a bare ValueError '
-                   'from int()/float() instead of ScoreError, so build_score.py prints a traceback')
 @pytest.mark.parametrize('meta', [{'quantize': {'subdivision': 'x'}}, {'tempo_bpm': 'fast'}])
 def test_non_numeric_metadata_is_score_error(tmp_path, meta):
     with pytest.raises(ScoreError):
@@ -216,10 +203,17 @@ def test_exact_duplicates_merged_and_counted(tmp_path):
     assert any('重复' in w for w in score.warnings)
 
 
-def test_near_duplicates_after_quantization_are_merged(tmp_path):
-    # two hits 70 ticks apart (outside the flam window) that snap to the same 16th
+def test_two_strokes_snapping_to_one_cell_raise(tmp_path):
+    # two hits 70 ticks apart (outside the flam window, 1/7 beat) cannot both be notated
     hits = [(1 - 35 / 480, HH, 80), (1 + 35 / 480, HH, 90)]
-    score = build(tmp_path, hits, {'quantize': {'flam_window': '1/16'}}, tpq=480, **FOUR_FOUR)
+    with pytest.raises(ScoreError, match='无法准确记谱|同一位置'):
+        build(tmp_path, hits, {'quantize': {'flam_window': '1/16'}}, tpq=480, **FOUR_FOUR)
+
+
+def test_near_simultaneous_retrigger_is_merged(tmp_path):
+    # the same pad triggered twice within 1/48 beat is one stroke
+    hits = [(1, HH, 80), (1 + 5 / 480, HH, 90)]
+    score = build(tmp_path, hits, tpq=480, **FOUR_FOUR)
     assert score.engraved_hits == 1
     assert score.duplicate_hits == 1
 

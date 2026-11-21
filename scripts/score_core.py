@@ -37,7 +37,7 @@ INSTRUMENTS_FILE = CONFIG_DIR / 'instruments.yaml'
 DRUM_MAP_DIR = CONFIG_DIR / 'drum-maps'
 DEFAULT_DRUM_MAP = 'gm'
 
-HEADS = ('normal', 'x', 'circle-x', 'diamond', 'triangle', 'plus', 'rhombus', 'slash')
+HEADS = ('normal', 'x', 'circle-x', 'diamond', 'triangle', 'plus', 'rhombus')
 MARKS = (None, 'open', 'half-open', 'closed')
 # MusiXTeX pitch letters on a treble-clef staff: c = C4 (one ledger line below),
 # e = bottom line, m = top line, n = space above, o = first ledger line above.
@@ -252,7 +252,7 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     quant = meta.get('quantize') or {}
     if not isinstance(quant, dict):
         raise ScoreError('元数据 quantize 必须是映射')
-    s.subdivision = int(quant.get('subdivision', meta.get('quantize_divisions_per_beat', 4)))
+    s.subdivision = _int(quant.get('subdivision', meta.get('quantize_divisions_per_beat', 4)), 'quantize.subdivision')
     if s.subdivision not in (2, 4):
         raise ScoreError('quantize.subdivision 只支持 4（16 分）或 2（8 分）')
     s.tuplets = str(quant.get('tuplets', 'auto'))
@@ -269,7 +269,7 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
             raise ScoreError(f'time_signature 写法应为 "4/4"，得到 {ts!r}')
         s.time_signature = (int(m.group(1)), int(m.group(2)))
     if meta.get('tempo_bpm') is not None:
-        s.tempo_bpm = float(meta['tempo_bpm'])
+        s.tempo_bpm = float(_fraction(meta['tempo_bpm'], 'tempo_bpm'))
         if not 10 <= s.tempo_bpm <= 400:
             raise ScoreError('tempo_bpm 应在 10–400 之间')
     s.pickup_beats = _fraction(meta.get('pickup_beats', 0), 'pickup_beats')
@@ -279,9 +279,28 @@ def parse_settings(meta: dict, cli: dict | None = None) -> Settings:
     if s.pickup_beats.denominator != 1 or s.source_leading_beats.denominator != 1:
         raise ScoreError('pickup_beats 与 source_leading_beats 必须是整数拍（四分音符）')
     dyn = meta.get('dynamics') or {}
-    s.ghost_velocity = dyn.get('ghost_below')
-    s.accent_velocity = dyn.get('accent_above')
+    if not isinstance(dyn, dict):
+        raise ScoreError('元数据 dynamics 必须是映射（ghost_below / accent_above）')
+    for key, attr in (('ghost_below', 'ghost_velocity'), ('accent_above', 'accent_velocity')):
+        if dyn.get(key) is not None:
+            value = _int(dyn[key], f'dynamics.{key}')
+            if not 1 <= value <= 127:
+                raise ScoreError(f'dynamics.{key} 必须在 1–127 之间')
+            setattr(s, attr, value)
+    for key in ('credits',):
+        if meta.get(key) is not None and not isinstance(meta[key], dict):
+            raise ScoreError(f'元数据 {key} 必须是映射')
+    for key in TEXT_FIELDS:
+        if meta.get(key) is not None and not isinstance(meta[key], (str, int, float)):
+            raise ScoreError(f'元数据 {key} 必须是文字')
     return s
+
+
+def _int(value: Any, where: str) -> int:
+    fraction = _fraction(value, where)
+    if fraction.denominator != 1:
+        raise ScoreError(f'元数据 {where} 必须是整数，得到 {value!r}')
+    return int(fraction)
 
 
 # --------------------------------------------------------------------------- MIDI input
@@ -309,6 +328,20 @@ class MidiData:
 DRUM_TRACK_NAME = re.compile(r'fpc|drum|perc|kit|ドラム|鼓', re.I)
 
 
+def decode_name(raw: str) -> str:
+    """mido decodes meta text as latin-1; DAWs write UTF-8 (FL Studio) or Shift-JIS."""
+    try:
+        data = raw.encode('latin-1')
+    except UnicodeEncodeError:
+        return raw
+    for codec in ('utf-8', 'cp932'):
+        try:
+            return data.decode(codec)
+        except UnicodeDecodeError:
+            continue
+    return raw
+
+
 def read_midi(path: Path, settings: Settings) -> MidiData:
     try:
         midi = mido.MidiFile(path)
@@ -327,7 +360,7 @@ def read_midi(path: Path, settings: Settings) -> MidiData:
         for msg in track:
             tick += msg.time
             if msg.type == 'track_name' and not name:
-                name = msg.name
+                name = decode_name(msg.name)
             elif msg.type == 'set_tempo':
                 tempos.append((tick, round(mido.tempo2bpm(msg.tempo), 3)))
             elif msg.type == 'time_signature':
@@ -347,8 +380,8 @@ def read_midi(path: Path, settings: Settings) -> MidiData:
     keep = set(selected)
     hits = sorted((h for h in hits if (h.track, h.channel) in keep), key=lambda h: (h.tick, h.note))
     # keep the last event when several share a tick
-    tempos = sorted({t: b for t, b in sorted(tempos)}.items())
-    sigs = sorted({t: (t, n, d) for t, n, d in sorted(sigs)}.values())
+    tempos = sorted({t: b for t, b in sorted(tempos, key=lambda e: e[0])}.items())
+    sigs = sorted({t: (t, n, d) for t, n, d in sorted(sigs, key=lambda e: e[0])}.values())
     return MidiData(tpq, hits, tempos, sigs, groups, selected, reason)
 
 
@@ -482,81 +515,109 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     warnings: list[str] = []
     shift = (s.source_leading_beats - s.pickup_beats) * tpq  # source ticks dropped before the score
 
-    # 1. graces and duplicates, per pitch, on raw timing
+    # 1. duplicates and graces, per pitch, on raw timing
     by_pitch: dict[int, list[SourceHit]] = defaultdict(list)
     for hit in data.hits:
         by_pitch[hit.note].append(hit)
     window = s.flam_window * tpq
-    main_hits: list[tuple[SourceHit, bool, list[int]]] = []  # (main hit, has grace, candidate ticks)
+    same_time = Fraction(tpq, 48)  # hits closer than this are one stroke triggered twice
+    main_hits: list[tuple[SourceHit, list[SourceHit]]] = []  # (main stroke, its graces)
     grace_count = duplicate_count = 0
     for hs in by_pitch.values():
         hs.sort(key=lambda h: h.tick)
-        i = 0
-        while i < len(hs):
-            cluster = [hs[i]]
-            while i + 1 < len(hs) and hs[i + 1].tick - cluster[-1].tick <= window:
-                i += 1
-                cluster.append(hs[i])
-            i += 1
-            loudest = max(cluster, key=lambda h: (h.velocity, h.tick))
-            before = [h for h in cluster if h.tick < loudest.tick and h.velocity < loudest.velocity]
-            grace_count += len(before)
-            duplicate_count += len(cluster) - 1 - len(before)
-            # A flam's notated position may be given by the grace or by the main stroke,
-            # whichever the DAW put on the grid; both ticks are candidates.
-            candidates = [loudest.tick] + [h.tick for h in before]
-            main_hits.append((loudest, bool(before), candidates))
+        strokes: list[SourceHit] = []
+        cluster: list[SourceHit] = []
+        for h in hs + [None]:
+            if h is not None and cluster and h.tick - cluster[0].tick <= same_time:
+                cluster.append(h)
+                continue
+            if cluster:
+                duplicate_count += len(cluster) - 1
+                strokes.append(max(cluster, key=lambda x: (x.velocity, -x.tick)))  # ties: earlier hit
+            cluster = [h] if h is not None else []
+        # A softer stroke shortly before a louder one is its grace note (flam; two = drag).
+        main_of: list[int | None] = [None] * len(strokes)
+        for i in range(len(strokes) - 2, -1, -1):
+            target = main_of[i + 1] if main_of[i + 1] is not None else i + 1
+            if (strokes[target].tick - strokes[i].tick <= window
+                    and strokes[i].velocity < strokes[target].velocity):
+                main_of[i] = target
+        graces: dict[int, list[SourceHit]] = defaultdict(list)
+        for i, m in enumerate(main_of):
+            if m is not None:
+                graces[m].append(strokes[i])
+        for m, gs in list(graces.items()):
+            if len(gs) > 2:  # a run of rising strokes is not ornamentation: keep every hit
+                for i, target in enumerate(main_of):
+                    if target == m:
+                        main_of[i] = None
+                del graces[m]
+        for i, stroke in enumerate(strokes):
+            if main_of[i] is None:
+                grace_count += len(graces.get(i, []))
+                main_hits.append((stroke, graces.get(i, [])))
 
     # 2. per-beat grid choice; positions in quarter beats relative to score start
     triplet_div = 6 if s.subdivision == 4 else 3
     beats_of: dict[int, list[tuple[list[Fraction], SourceHit, bool]]] = defaultdict(list)
-    for hit, grace, ticks in main_hits:
-        cands = [(Fraction(t) - shift) / tpq for t in ticks]
-        beat = math.floor(Fraction(round(cands[0] * 12), 12))
-        beats_of[beat].append((cands, hit, grace))
+    for hit, gs in main_hits:
+        main_pos = (Fraction(hit.tick) - shift) / tpq
+        beat = math.floor(Fraction(round(main_pos * 12), 12))
+        cands = [main_pos] + [(Fraction(g.tick) - shift) / tpq for g in gs]
+        beats_of[beat].append((cands, hit, bool(gs)))
 
-    def grid_error(cands: list[Fraction], div: int) -> tuple[Fraction, Fraction]:
-        return min((abs(p - Fraction(round(p * div), div)), p) for p in cands)
+    def place(cands: list[Fraction], div: int, beat: int) -> tuple[Fraction, Fraction]:
+        """(error, grid position) using the main stroke or, for a flam whose main stroke is
+        off the grid, the grace — but only positions that stay inside this beat."""
+        best = None
+        for p in cands:
+            q = Fraction(round(p * div), div)
+            if not beat <= q < beat + 1 and not (q == beat + 1 and p is cands[0]):
+                continue
+            option = (abs(p - q), q)
+            if best is None or option[0] < best[0]:
+                best = option
+        return best if best is not None else (Fraction(1), Fraction(round(cands[0] * div), div))
+
     quantized: dict[int, dict[int, Hit]] = defaultdict(dict)
     triplet_beats: dict[int, int] = {}
-    tol = Fraction(1, 24)
+    tol_s, tol_t = Fraction(1, 24), Fraction(1, 32)
     for beat, items in sorted(beats_of.items()):
         if beat < 0:
             raise ScoreError('有音符落在乐谱起点之前：请检查元数据 source_leading_beats / pickup_beats')
-        err_s = max(grid_error(c, s.subdivision)[0] for c, _, _ in items)
-        err_t = max(grid_error(c, triplet_div)[0] for c, _, _ in items)
+        err_s = max(place(c, s.subdivision, beat)[0] for c, _, _ in items)
+        err_t = max(place(c, triplet_div, beat)[0] for c, _, _ in items)
         where = f'第 {beat + 1} 拍（从乐谱起点按四分音符计）'
-        if err_s <= tol:
+        if err_s <= tol_s:
             div = s.subdivision
-        elif s.tuplets == 'auto' and err_t * 2 <= err_s and err_t <= Fraction(1, 12):
+        elif s.tuplets == 'auto' and err_t <= tol_t:
             div = triplet_div
-            if err_t > tol:
-                warnings.append(f'{where}时值不齐，按三连音量化（最大偏差 {float(err_t):.3f} 拍）')
-        elif err_s <= Fraction(1, 12):
-            div = s.subdivision
-            warnings.append(f'{where}时值不齐，按直拍量化（最大偏差 {float(err_s):.3f} 拍）')
         else:
             unit = '16 分' if s.subdivision == 4 else '8 分'
-            hint = '（当前 quantize.tuplets: off）' if s.tuplets == 'off' else ''
-            raise ScoreError(f'{where}的音符既不在 {unit}网格上，也不在三连音网格上{hint}：可能是 32 分音符、'
-                             '五连音或未量化的演奏。请先在 DAW 中量化，或扩展转换器后再处理。')
+            if s.tuplets == 'off' and err_t <= tol_t:
+                reason = '这一拍是三连音，但元数据设置了 quantize.tuplets: off'
+            else:
+                reason = (f'音符既不在 {unit}网格上，也不在三连音网格上（偏差 {float(min(err_s, err_t)):.3f} 拍）：'
+                          '可能是 32 分音符、五连音、同一拍里直拍与三连音混用，或未量化的演奏')
+            if s.tuplets == 'off':
+                reason += '（当前 quantize.tuplets: off）'
+            raise ScoreError(f'{where}无法准确记谱：{reason}。请先在 DAW 中量化，或扩展转换器后再处理。')
         if div != s.subdivision:
             triplet_beats[beat] = div
         for cands, hit, grace in items:
-            pos = grid_error(cands, div)[1]
-            tick = int(Fraction(round(pos * div), div) * R)
+            pos = place(cands, div, beat)[1]
+            tick = int(pos * R)
             inst = dmap.notes[hit.note]
             prev = quantized[tick].get(hit.note)
             if prev is not None:
-                duplicate_count += 1
-                if prev.velocity >= hit.velocity:
-                    continue
+                raise ScoreError(f'{where}：MIDI 音符 {hit.note} 有两次击打量化到同一位置，'
+                                 '说明这里的节奏比 16 分音符/三连音更细。请先在 DAW 中量化或删去多余的击打。')
             hand = inst.part == 'hand'
             ghost = hand and s.ghost_velocity is not None and hit.velocity < s.ghost_velocity
             accent = hand and s.accent_velocity is not None and hit.velocity > s.accent_velocity
             quantized[tick][hit.note] = Hit(hit.note, inst, hit.velocity, grace, ghost, accent)
     if duplicate_count:
-        warnings.append(f'{duplicate_count} 个同音高的重复触发已合并（保留力度最大者）')
+        warnings.append(f'{duplicate_count} 次几乎同时（相差不到 1/48 拍）的同音高重复触发已合并（保留力度最大者）')
 
     # 3. bars
     last = max(quantized) if quantized else 0
@@ -564,7 +625,21 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     starts = [b.start for b in bars]
     for tick, hits in quantized.items():
         bar = bars[bisect.bisect_right(starts, tick) - 1]
-        bar.events[tick - bar.start] = dict(sorted(hits.items()))
+        offset = tick - bar.start
+        if not 0 <= offset < bar.length:
+            raise ScoreError(f'内部错误：位置 {tick}/{R} 拍不在任何小节内')
+        bar.events[offset] = dict(sorted(hits.items()))
+        seen: dict[tuple[str, str], int] = {}
+        for note, hit in hits.items():
+            key = (hit.inst.part, hit.inst.staff)
+            if key in seen:
+                other = hits[seen[key]].inst
+                same = (other.head, other.mark) == (hit.inst.head, hit.inst.mark)
+                warnings.append(f'第 {bar.number} 小节：MIDI 音符 {seen[key]} 与 {note} 同时出现在谱表同一位置'
+                                + ('且符头相同，谱面上无法区分' if same else '，符头会重叠')
+                                + '；如需区分请在 note_map 中改位置')
+            else:
+                seen[key] = note
     for beat, div in triplet_beats.items():
         tick = beat * R
         bar = bars[bisect.bisect_right(starts, tick) - 1]
@@ -572,10 +647,12 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     for bar in bars:
         bar.events = dict(sorted(bar.events.items()))
 
-    tempo = s.tempo_bpm or (data.tempos[0][1] if data.tempos else 120.0)
-    if s.tempo_bpm and data.tempos and abs(data.tempos[0][1] - s.tempo_bpm) > 0.5:
-        warnings.append(f'元数据 tempo_bpm={s.tempo_bpm:g} 与 MIDI 速度 {data.tempos[0][1]:g} 不同，谱面按元数据标注')
-    apply_tempo_changes(bars, data, shift, tempo)
+    starting = [bpm for t, bpm in data.tempos if Fraction(t) - shift <= 0]
+    midi_tempo = starting[-1] if starting else (data.tempos[0][1] if data.tempos else None)
+    tempo = s.tempo_bpm or midi_tempo or 120.0
+    if s.tempo_bpm and midi_tempo and abs(midi_tempo - s.tempo_bpm) > 0.5:
+        warnings.append(f'元数据 tempo_bpm={s.tempo_bpm:g} 与 MIDI 速度 {midi_tempo:g} 不同，谱面按元数据标注')
+    apply_tempo_changes(bars, data, shift, tempo, warnings)
     return Transcription(bars, dmap, meta, s, len(data.hits), grace_count, duplicate_count,
                          len(triplet_beats), tempo, data, warnings)
 
@@ -595,6 +672,9 @@ def make_bars(data: MidiData, s: Settings, shift: Fraction, last_tick: int, warn
     if not sigs:
         sigs = [(Fraction(-10 ** 9), 4, 4)]
         warnings.append('MIDI 没有拍号事件，按 4/4 处理（可在元数据 time_signature 中指定）')
+    elif data.time_signatures and data.time_signatures[0][0] > 0 and s.time_signature is None:
+        sigs.insert(0, (Fraction(-10 ** 9), 4, 4))  # SMF default before the first time-signature event
+        warnings.append('MIDI 第一个拍号事件不在开头，之前的部分按 4/4 处理')
     for _, n, d in sigs:
         if d != 4 or not 1 <= n <= 12:
             raise ScoreError(f'暂不支持拍号 {n}/{d}：目前只支持 1/4–12/4（含小节线上的拍号变化）。'
@@ -611,6 +691,13 @@ def make_bars(data: MidiData, s: Settings, shift: Fraction, last_tick: int, warn
     pos = Fraction(0)  # source ticks after shift
     end = Fraction(last_tick, R) * tpq
     if s.pickup_beats:
+        first_meter = sig_at(s.pickup_beats * tpq)
+        if s.pickup_beats >= first_meter[0]:
+            raise ScoreError(f'pickup_beats={s.pickup_beats} 不短于第一小节（{first_meter[0]}/{first_meter[1]}），'
+                             '弱起小节必须比完整小节短')
+        for t, _, _ in sigs:
+            if 0 < t < s.pickup_beats * tpq:
+                raise ScoreError('MIDI 拍号变化落在弱起小节内部；请检查 pickup_beats / source_leading_beats')
         bars.append(Bar(0, 0, int(s.pickup_beats), 4, 0, pickup=True, show_meter=True))
         pos = s.pickup_beats * tpq
     number = 1
@@ -627,7 +714,8 @@ def make_bars(data: MidiData, s: Settings, shift: Fraction, last_tick: int, warn
     return bars
 
 
-def apply_tempo_changes(bars: list[Bar], data: MidiData, shift: Fraction, initial: float) -> None:
+def apply_tempo_changes(bars: list[Bar], data: MidiData, shift: Fraction, initial: float,
+                        warnings: list[str] | None = None) -> None:
     current = initial
     bars[0].tempo = initial
     starts = [b.start for b in bars]
@@ -637,6 +725,8 @@ def apply_tempo_changes(bars: list[Bar], data: MidiData, shift: Fraction, initia
             continue
         bar = bars[bisect.bisect_right(starts, r) - 1]
         if abs(bpm - current) > 0.5:
+            if r != bar.start and warnings is not None:
+                warnings.append(f'第 {bar.number} 小节中途的速度变化（♩={bpm:g}）标在该小节开头')
             bar.tempo = bpm
             current = bpm
 
@@ -684,13 +774,6 @@ def voice_hits(bar: Bar, part: str) -> dict[int, dict[int, Hit]]:
             for t, hs in bar.events.items() if any(h.inst.part == part for h in hs.values())}
 
 
-def _largest_fit(length: int, table: dict[int, Any], start: int, unit: int) -> int:
-    for value in sorted(table, reverse=True):
-        if value <= length and (value % unit == 0 or start % value == 0):
-            return value
-    return min(table)
-
-
 def _straight_partial(start: int, end: int) -> list[tuple[int, int]]:
     """Rests inside one beat on the straight grid: dotted 8th only from the beat start."""
     out, t = [], start
@@ -718,14 +801,28 @@ def _triplet_partial(start: int, end: int) -> list[tuple[int, int]]:
     return out
 
 
-def _rests(start: int, end: int, bar: Bar) -> list[VoiceItem]:
+def voice_tuplets(bar: Bar, part: str) -> dict[int, int]:
+    """Tuplet kind per beat for one voice: 3 (8th triplets), 6 (16th sextuplets), or absent
+    when this voice plays nothing off the straight grid in that beat (e.g. a kick on the beat
+    under hand triplets stays a plain quarter)."""
+    result = {}
+    for beat in bar.triplet_beats:
+        offsets = [t - beat * R for t, hs in bar.events.items()
+                   if beat * R <= t < (beat + 1) * R and any(h.inst.part == part for h in hs.values())]
+        if any(o % (R // 4) for o in offsets):
+            result[beat] = 6 if any(o % (R // 3) for o in offsets) else 3
+    return result
+
+
+def _rests(start: int, end: int, bar: Bar, tuplets: dict[int, int] | None = None) -> list[VoiceItem]:
+    tuplets = {} if tuplets is None else tuplets
     out: list[VoiceItem] = []
     t = start
     while t < end:
         beat = t // R
         beat_end = min(end, (beat + 1) * R)
-        if beat in bar.triplet_beats:
-            out += [VoiceItem(a, d, None, tuplet=bar.triplet_beats[beat]) for a, d in _triplet_partial(t, beat_end)]
+        if beat in tuplets:
+            out += [VoiceItem(a, d, None, tuplet=tuplets[beat]) for a, d in _triplet_partial(t, beat_end)]
             t = beat_end
             continue
         if t % R:
@@ -733,7 +830,7 @@ def _rests(start: int, end: int, bar: Bar) -> list[VoiceItem]:
             t = beat_end
             continue
         stop = t
-        while stop + R <= end and (stop // R) not in bar.triplet_beats:
+        while stop + R <= end and (stop // R) not in tuplets:
             stop += R
         if stop == t:  # less than a whole beat left
             out += [VoiceItem(a, d, None) for a, d in _straight_partial(t, beat_end)]
@@ -762,33 +859,38 @@ def voice_items(bar: Bar, part: str) -> list[VoiceItem]:
 
     Drum notation convention: a note lasts until the next onset of the same voice but
     never past the end of its beat (a note on the beat lasts at most a quarter).  The
-    remainder is filled with rests, so rhythms always add up beat by beat."""
+    remainder is filled with rests, so rhythms always add up beat by beat.  Inside a
+    tuplet beat with several strokes a note lasts at most an 8th-note triplet, so the
+    group stays beamed."""
     onsets = voice_hits(bar, part)
+    tuplets = voice_tuplets(bar, part)
     if not onsets:
-        return [VoiceItem(0, bar.length, None, measure_rest=not bar.pickup)]
+        if bar.pickup:
+            return _rests(0, bar.length, bar)
+        return [VoiceItem(0, bar.length, None, measure_rest=True)]
     times = sorted(onsets)
     items: list[VoiceItem] = []
     cursor = 0
     for i, t in enumerate(times):
         if t > cursor:
-            items += _rests(cursor, t, bar)
+            items += _rests(cursor, t, bar, tuplets)
         nxt = times[i + 1] if i + 1 < len(times) else bar.length
         beat = t // R
         beat_end = (beat + 1) * R
-        div = bar.triplet_beats.get(beat)
-        if div and t == beat * R and nxt >= beat_end:
-            div = None  # this voice only strikes on the beat: a plain quarter, not a tuplet
         raw = min(nxt, beat_end) - t
-        if div:
-            dur = _largest_fit(raw, TRIPLET_VALUES if div == 6 else {R * 2 // 3: 0, R // 3: 0}, t, R // div)
-            items.append(VoiceItem(t, dur, onsets[t], tuplet=div))
+        kind = tuplets.get(beat)
+        if kind:
+            allowed = [R * 2 // 3, R // 2, R // 3, R // 6] if kind == 6 else [R * 2 // 3, R // 3]
+            if sum(1 for x in times if beat * R <= x < beat_end) > 1:
+                allowed = [v for v in allowed if v <= R // 3]
+            dur = max((v for v in allowed if v <= raw), default=min(allowed))
+            items.append(VoiceItem(t, dur, onsets[t], tuplet=kind))
         else:
-            allowed = {R: 0, R * 3 // 4: 0, R // 2: 0, R // 4: 0}
-            dur = max(v for v in allowed if v <= raw)
+            dur = max(v for v in (R, R * 3 // 4, R // 2, R // 4) if v <= raw)
             items.append(VoiceItem(t, dur, onsets[t]))
         cursor = t + items[-1].duration
     if cursor < bar.length:
-        items += _rests(cursor, bar.length, bar)
+        items += _rests(cursor, bar.length, bar, tuplets)
     assign_beams(items, bar)
     return items
 
@@ -802,7 +904,7 @@ def assign_beams(items: list[VoiceItem], bar: Bar) -> None:
         if not item.measure_rest:
             by_beat[item.start // R].append(item)
     for beat, group in by_beat.items():
-        if beat in bar.triplet_beats and any(it.tuplet for it in group):
+        if any(it.tuplet for it in group):
             group[0].tuplet_edge = 'both' if len(group) == 1 else 'start'
             if len(group) > 1:
                 group[-1].tuplet_edge = 'stop'
@@ -836,14 +938,16 @@ def assign_beams(items: list[VoiceItem], bar: Bar) -> None:
                 it.beams.append((2, 'forward hook' if i == 0 else 'backward hook'))
 
 
-def tuplet_number(bar: Bar, beat: int) -> int:
-    """Printed tuplet number: 3 for 8th-note triplets, 6 for 16th-note sextuplets."""
-    return 6 if bar.triplet_beats.get(beat) == 6 and _uses_sixteenths(bar, beat) else 3
-
-
-def _uses_sixteenths(bar: Bar, beat: int) -> bool:
-    return any((t - beat * R) % (R // 3) for t in bar.events if beat * R <= t < (beat + 1) * R)
+def item_ratio(item: VoiceItem) -> tuple[int, int]:
+    """MusicXML time-modification of a tuplet item: 3:2 for triplets, 6:4 for sextuplets."""
+    return (6, 4) if item.tuplet == 6 else (3, 2)
 
 
 def tuplet_ratio(bar: Bar, beat: int) -> tuple[int, int]:
-    return (6, 4) if tuplet_number(bar, beat) == 6 else (3, 2)
+    """Bar-level ratio of a tuplet beat: 6:4 when any voice uses 16th-triplet positions."""
+    kinds = [voice_tuplets(bar, part).get(beat) for part in ('hand', 'foot')]
+    return (6, 4) if 6 in kinds else (3, 2)
+
+
+def tuplet_number(bar: Bar, beat: int) -> int:
+    return tuplet_ratio(bar, beat)[0]

@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from score_core import (R, STAFF_LETTERS, Bar, Hit, ScoreError, Transcription, VoiceItem, build_score,
-                        note_type, tuplet_number, voice_items, _rests)
+                        note_type, voice_items, voice_tuplets, _rests)
 
 SYMBOL = {
     'normal': r'\q@symbol', 'x': r'\do@symbol', 'circle-x': r'\dc@symbol', 'diamond': r'\d@symbol',
@@ -113,7 +113,7 @@ class VoiceWriter:
     def tuplet_label(self, item: VoiceItem, heads: list[Hit]) -> str:
         if not item.tuplet_label:
             return ''
-        number = tuplet_number(self.bar, item.start // R)
+        number = item.tuplet
         if item.beams:
             return r'\def\txt{' + str(number) + '}' + (r'\butext' if self.up else r'\bltext') + str(self.beam)
         p = heads[-1].inst.staff
@@ -208,8 +208,9 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         for it in items:
             if not it.is_rest:
                 timeline.setdefault(it.start, {})[part] = it
+    tuplets = {**voice_tuplets(bar, 'foot'), **voice_tuplets(bar, 'hand')}
     for a, b in silent_spans(bar, voices):
-        for rest in _rests(a, b, bar):
+        for rest in _rests(a, b, bar, tuplets):
             timeline.setdefault(rest.start, {})['rest'] = rest
     times = sorted(timeline)
     groups: list[str] = []

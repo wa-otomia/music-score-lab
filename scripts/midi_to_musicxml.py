@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from score_core import (R, STAFF_LETTERS, Bar, Hit, ScoreError, Transcription, VoiceItem, build_score,
-                        note_type, tuplet_ratio, voice_items)
+                        item_ratio, note_type, voice_items)
 
 NOTEHEAD = {'normal': ('normal', None), 'x': ('x', None), 'circle-x': ('circle-x', None),
             'diamond': ('diamond', 'no'), 'triangle': ('triangle', None), 'plus': ('cross', None),
@@ -71,8 +71,8 @@ def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None,
         sub(note, 'type', name)
         for _ in range(dots):
             sub(note, 'dot')
-    if item.tuplet and not grace and bar is not None:
-        actual, normal = tuplet_ratio(bar, item.start // R)
+    if item.tuplet and not grace:
+        actual, normal = item_ratio(item)
         tm = sub(note, 'time-modification')
         sub(tm, 'actual-notes', actual)
         sub(tm, 'normal-notes', normal)
@@ -89,9 +89,8 @@ def write_note(measure: ET.Element, item: VoiceItem, part: str, hit: Hit | None,
         for level, value in item.beams:
             sub(note, 'beam', value, number=str(level))
     notations = None
-    if first and not grace and item.tuplet_edge and bar is not None:
+    if first and not grace and item.tuplet_edge:
         notations = sub(note, 'notations')
-        actual, _normal = tuplet_ratio(bar, item.start // R)
         edges = ['start', 'stop'] if item.tuplet_edge == 'both' else [item.tuplet_edge]
         for edge in edges:
             attrs = {'type': edge, 'number': '1'}

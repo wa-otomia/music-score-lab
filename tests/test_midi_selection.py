@@ -54,8 +54,6 @@ def test_track_name_heuristic(tmp_path, name):
     assert 'FPC' in score.midi.selection_reason
 
 
-@pytest.mark.xfail(strict=True, reason='BUG: mido decodes track names as latin-1, so a UTF-8 (or Shift-JIS) '
-                   'track name such as ドラム never matches the ドラム/鼓 alternatives of DRUM_TRACK_NAME')
 @pytest.mark.parametrize('name', ['ドラム', '鼓'])
 def test_track_name_heuristic_japanese_utf8(tmp_path, name):
     tracks = [{'hits': PIANO, 'channel': 1, 'name': 'Piano'},
