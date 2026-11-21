@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.DS_Store
+*.log
+*.mx1
+*.mx2
+*.dvi
+*.ps
+*.aux
+*.tmp
+build/
+rendered/

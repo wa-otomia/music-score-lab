@@ -1,0 +1,28 @@
+name: Score conversion tests
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - 'configs/**'
+      - 'scores/**/metadata.yaml'
+      - 'scores/**/*.mid'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/validate.yml'
+  pull_request:
+  workflow_dispatch:
+jobs:
+  conversion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests
+      - name: Rebuild MusicXML (does not overwrite curated score)
+        run: |
+          mkdir -p build
+          python scripts/midi_to_musicxml.py scores/inochi-ni-kirawareteiru/gm-channel10.mid --metadata scores/inochi-ni-kirawareteiru/metadata.yaml --out build/generated.musicxml
+          python scripts/validate_score.py scores/inochi-ni-kirawareteiru/gm-channel10.mid --metadata scores/inochi-ni-kirawareteiru/metadata.yaml --musicxml build/generated.musicxml

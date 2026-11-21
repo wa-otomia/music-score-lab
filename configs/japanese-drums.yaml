@@ -1,0 +1,14 @@
+# GM percussion notes, Japanese drum-set five-line staff positions.
+# staff_pos is a MusiXTeX note coordinate, not the GM pitch.
+# kinds: normal (filled), x (cymbal cross), open (cross with open circle).
+36: {part: foot, staff_pos: f, kind: normal, name: Kick}
+37: {part: hand, staff_pos: j, kind: x, name: Side Stick}
+40: {part: hand, staff_pos: j, kind: normal, name: Electric Snare}
+42: {part: hand, staff_pos: n, kind: x, name: Closed Hi-Hat}
+43: {part: hand, staff_pos: h, kind: normal, name: Floor Tom}
+44: {part: foot, staff_pos: d, kind: x, name: Pedal Hi-Hat}
+46: {part: hand, staff_pos: n, kind: open, name: Open Hi-Hat}
+47: {part: hand, staff_pos: k, kind: normal, name: Mid Tom}
+48: {part: hand, staff_pos: l, kind: normal, name: High Tom}
+49: {part: hand, staff_pos: o, kind: x, name: Crash Cymbal}
+55: {part: hand, staff_pos: p, kind: x, name: Splash Cymbal}
