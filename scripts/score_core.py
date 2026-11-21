@@ -559,12 +559,13 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
 
     # 2. per-beat grid choice; positions in quarter beats relative to score start
     triplet_div = 6 if s.subdivision == 4 else 3
-    beats_of: dict[int, list[tuple[list[Fraction], SourceHit, bool]]] = defaultdict(list)
+    # The grid is chosen per beat and per voice, so hand triplets over straight feet work.
+    beats_of: dict[tuple[int, str], list[tuple[list[Fraction], SourceHit, bool]]] = defaultdict(list)
     for hit, gs in main_hits:
         main_pos = (Fraction(hit.tick) - shift) / tpq
         beat = math.floor(Fraction(round(main_pos * 12), 12))
         cands = [main_pos] + [(Fraction(g.tick) - shift) / tpq for g in gs]
-        beats_of[beat].append((cands, hit, bool(gs)))
+        beats_of[(beat, dmap.notes[hit.note].part)].append((cands, hit, bool(gs)))
 
     def place(cands: list[Fraction], div: int, beat: int) -> tuple[Fraction, Fraction]:
         """(error, grid position) using the main stroke or, for a flam whose main stroke is
@@ -582,12 +583,14 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
     quantized: dict[int, dict[int, Hit]] = defaultdict(dict)
     triplet_beats: dict[int, int] = {}
     tol_s, tol_t = Fraction(1, 24), Fraction(1, 32)
-    for beat, items in sorted(beats_of.items()):
+    for (beat, part), items in sorted(beats_of.items()):
         if beat < 0:
             raise ScoreError('有音符落在乐谱起点之前：请检查元数据 source_leading_beats / pickup_beats')
-        err_s = max(place(c, s.subdivision, beat)[0] for c, _, _ in items)
-        err_t = max(place(c, triplet_div, beat)[0] for c, _, _ in items)
-        where = f'第 {beat + 1} 拍（从乐谱起点按四分音符计）'
+        # error relative to each stroke's tolerance; a flam's main stroke is late by nature
+        flam_tol = Fraction(1, 16)
+        err_s = max(place(c, s.subdivision, beat)[0] * (tol_s / flam_tol if g else 1) for c, _, g in items)
+        err_t = max(place(c, triplet_div, beat)[0] * (tol_t / flam_tol if g else 1) for c, _, g in items)
+        where = f'第 {beat + 1} 拍（从乐谱起点按四分音符计）的{"手" if part == "hand" else "脚"}声部'
         if err_s <= tol_s:
             div = s.subdivision
         elif s.tuplets == 'auto' and err_t <= tol_t:
@@ -598,12 +601,12 @@ def transcribe(data: MidiData, dmap: DrumMap, meta: dict, s: Settings) -> Transc
                 reason = '这一拍是三连音，但元数据设置了 quantize.tuplets: off'
             else:
                 reason = (f'音符既不在 {unit}网格上，也不在三连音网格上（偏差 {float(min(err_s, err_t)):.3f} 拍）：'
-                          '可能是 32 分音符、五连音、同一拍里直拍与三连音混用，或未量化的演奏')
+                          '可能是 32 分音符、五连音、同一声部同一拍里直拍与三连音混用，或未量化的演奏')
             if s.tuplets == 'off':
                 reason += '（当前 quantize.tuplets: off）'
             raise ScoreError(f'{where}无法准确记谱：{reason}。请先在 DAW 中量化，或扩展转换器后再处理。')
         if div != s.subdivision:
-            triplet_beats[beat] = div
+            triplet_beats[beat] = max(div, triplet_beats.get(beat, 0))
         for cands, hit, grace in items:
             pos = place(cands, div, beat)[1]
             tick = int(pos * R)

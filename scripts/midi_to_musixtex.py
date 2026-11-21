@@ -212,8 +212,14 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
         for it in items:
             if not it.is_rest:
                 timeline.setdefault(it.start, {})[part] = it
-    tuplets = {**voice_tuplets(bar, 'foot'), **voice_tuplets(bar, 'hand')}
-    silent = silent_spans(bar, voices)
+    hand_t, foot_t = voice_tuplets(bar, 'hand'), voice_tuplets(bar, 'foot')
+    tuplets = {**foot_t, **hand_t}
+    # beats where one voice is in tuplets and the other plays straight: rests per voice only
+    def plays(part: str, beat: int) -> bool:
+        return any(beat * R <= t < (beat + 1) * R and any(h.inst.part == part for h in hs.values())
+                   for t, hs in bar.events.items())
+    mixed = {b for b in bar.triplet_beats if (b in hand_t) != (b in foot_t) and plays('hand', b) and plays('foot', b)}
+    silent = [(a, b) for a, b in silent_spans(bar, voices) if not any(x * R <= a < (x + 1) * R for x in mixed)]
     for a, b in silent:
         for rest in _rests(a, b, bar, tuplets):
             timeline.setdefault(rest.start, {})['rest'] = rest
@@ -221,7 +227,8 @@ def bar_groups(bar: Bar) -> tuple[list[str], float]:
     # for feet) even while the other voice plays, so the tuplet visibly adds up.
     for part, items in voices.items():
         for it in items:
-            if it.is_rest and it.tuplet and not any(a <= it.start < b for a, b in silent):
+            in_mixed = (it.start // R) in mixed and it.duration < R
+            if it.is_rest and (it.tuplet or in_mixed) and not any(a <= it.start < b for a, b in silent):
                 timeline.setdefault(it.start, {})[f'{part}-rest'] = it
     times = sorted(timeline)
     groups: list[str] = []

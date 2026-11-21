@@ -16,7 +16,7 @@ notes:
   37: side-stick
   38: snare            # Acoustic Snare
   39: hand-clap
-  40: snare            # Electric Snare（印成同一个军鼓；两者同时用时转换器会提示重叠）
+  40: snare            # Electric Snare（与 38 印成同一个军鼓；两者同时击打时转换器会给出提示）
   41: tom-floor-low
   42: hihat-closed
   43: tom-floor-high
